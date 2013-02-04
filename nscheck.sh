@@ -1,0 +1,128 @@
+#!/usr/local/bin/bash
+#nscheck.sh - Simple script to do fairly good DNS diagnostics, to determine: Failing/slow nameservers, result inconsistency and so on.
+
+# Copyright (c) 2012, Matthew Connelly
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+# - Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+# - Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+# - Neither the name of the software nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+#TODO
+# - Handle multiple results for single record names (DNS round-robin)
+
+#Configurables
+TIMEOUT=1
+
+#Binary locations
+DIG_BIN="/usr/bin/dig"
+
+#Internal variables
+DIG_RECORD_TYPE="A"
+ZONE=""
+if [ "$1" == "-6" ]; then
+	DIG_RECORD_TYPE="AAAA"
+	ZONE=$2
+elif [ "$1" == "-4" ]; then
+	ZONE=$2
+elif [ "$1" == "-h" ]; then
+	echo "nscheck 0.1: Bash script to do DNS diagnosis.
+NOTE: This script will not, at present, function properly for DNS queries which result in more than one record of the same type (ie, DNS round robins)
+
+Usage: nscheck [-4|-6] DNS.ENTITY
+nscheck -h: Show this usage.
+nscheck -4: Use IPv4 [Default].
+nscheck -6: Use IPv6."
+	exit 0
+else
+	ZONE=$1
+fi
+DOMAIN=$ZONE
+IPS_REPORTED=""
+NS_REPORTED=""
+FAILED_NS=""
+IPS_CHECKED=""
+SUCCESS_OUT="NS | NS-IP | NS-REVERSE | IP | REVERSE"
+FAIL_OUT="NS | NS-IP | NS-REVERSE"
+
+#Because this is a DNS debugging script, we don't rely on a domain's nameservers themselves for a list of nameservers. Instead, we query root and TLD nameservers.
+
+#First we make sure we're querying the nameservers for the actual domain and not a subdomain. Also; remove trailing dot.
+OUT=$($DIG_BIN $ZONE SOA|grep "^;; AUTH" -A1|tail -n1|awk '{print $1}'|sed -e 's/.$//g')
+if [ -z "$OUT" ]; then
+	#Try again.
+	OUT=$($DIG_BIN $ZONE SOA|grep "^;; ANSWER" -A6|grep "SOA"|tail -n1|awk '{print $1}'|sed -e 's/.$//g')
+fi
+if [[ $OUT != $ZONE && ! -z "$OUT" ]]; then
+	ZONE=$OUT
+fi
+for ns in $($DIG_BIN +short $ZONE NS); do
+	if [[ $NS_REPORTED != *"$ns"* ]]; then
+		NS_REPORTED="$NS_REPORTED$ns "
+	fi
+	for ip in $($DIG_BIN +short $ns); do
+		if [[ $IPS_CHECKED != *"$ip"* ]]; then
+			IPS_CHECKED="$IPS_CHECKED $ip"
+			#We need to use tail here in order to stop dig from being fucking retarded and providing a cname as well as the result
+			OUT="$($DIG_BIN +short +time=$TIMEOUT @$ip $DOMAIN $DIG_RECORD_TYPE|tail -n1)"
+			REVERSE=$($DIG_BIN +short -x $ip|tail -n1)
+			if [ -z "$REVERSE" ]; then
+				REVERSE="no-reverse"
+			fi
+			if [[ $OUT == ";;"* && $FAILED_NS != *"$ip"* ]]; then
+				FAILED_NS="$FAILED_NS$ip "
+			elif [[ $OUT != ";;"* && $IPS_REPORTED != *"$OUT"* ]]; then
+				IPS_REPORTED="$IPS_REPORTED$OUT "
+			fi
+			if [[ $OUT != ";;"* ]]; then
+				REVOUT=""
+				if [ -z "$OUT" ]; then
+					OUT="no-record"
+				else
+					REVOUT="$($DIG_BIN +short -x $OUT|tail -n1)"
+				fi
+				if [ -z "$REVOUT" ]; then
+					REVOUT="no-reverse"
+				fi
+				SUCCESS_OUT="$SUCCESS_OUT
+$ns | $ip | $REVERSE | $OUT | $REVOUT"
+			else
+				FAIL_OUT="$FAIL_OUT
+$ns | $ip | $REVERSE"
+			fi
+		fi
+	done
+done
+if [[ $ZONE != $DOMAIN ]]; then
+	echo "Found root zone for $DOMAIN: $ZONE"
+fi
+if [ ! -z "$NS_REPORTED" ]; then
+	echo "Nameserver records found for $ZONE: $(echo $NS_REPORTED|sort)"
+else
+	echo "No nameserver records were found for $ZONE."
+	exit 1
+fi
+if [ -z "$IPS_REPORTED" ]; then
+	echo "No IP addresses were returned for $DOMAIN"
+else
+	echo "IPs reported for $DOMAIN: $(echo $IPS_REPORTED|sort -n)"
+fi
+if [ -z "$FAILED_NS" ]; then
+	echo "No nameservers for $DOMAIN failed to respond."
+else
+	echo "The following nameservers for $DOMAIN failed to respond: $(echo $FAILED_NS|sort -n)"
+fi
+if [ ! -z "$IPS_REPORTED" ]; then
+	echo
+	echo "Full DNS output of each nameserver IP:"
+	echo "$SUCCESS_OUT"|sort -n|uniq|column -t
+fi
+if [ ! -z "$FAILED_NS" ]; then
+	echo
+	echo "Reverse DNS for every unresponsive nameserver IP:"
+	echo "$FAIL_OUT"|sort -n|uniq|column -t
+fi
+echo
