@@ -24,6 +24,17 @@ if [ $? -ne 0 -o -z "$DIG_BIN" ]; then
 	exit 1
 fi
 
+#Functions
+function usage () {
+	echo "nscheck 0.1: Bash script to do DNS diagnosis.
+NOTE: This script will not, at present, function properly for DNS queries which result in more than one record of the same type (ie, DNS round robins)
+
+Usage: nscheck [-4|-6] DNS.ENTITY
+nscheck -h: Show this usage.
+nscheck -4: Use IPv4 [Default].
+nscheck -6: Use IPv6."
+}
+
 #Internal variables
 DIG_RECORD_TYPE="A"
 ZONE=""
@@ -33,16 +44,14 @@ if [ "$1" == "-6" ]; then
 elif [ "$1" == "-4" ]; then
 	ZONE=$2
 elif [ "$1" == "-h" ]; then
-	echo "nscheck 0.1: Bash script to do DNS diagnosis.
-NOTE: This script will not, at present, function properly for DNS queries which result in more than one record of the same type (ie, DNS round robins)
-
-Usage: nscheck [-4|-6] DNS.ENTITY
-nscheck -h: Show this usage.
-nscheck -4: Use IPv4 [Default].
-nscheck -6: Use IPv6."
+	usage
 	exit 0
 else
 	ZONE=$1
+fi
+if [ -z "$ZONE" ]; then
+	usage
+	exit 1
 fi
 DOMAIN=$ZONE
 IPS_REPORTED=""
