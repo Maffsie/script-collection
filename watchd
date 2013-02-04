@@ -1,0 +1,157 @@
+#/usr/bin/env bash
+# watchd - Bash script to check the integrity/state of a given directory. Meant to be run continuously in cron.
+# Written 9th January 2013 by Matthew Connelly <maff@maff.me.uk>
+
+#Internal variables
+HOSTNAME="$(hostname -f)"
+HOSTNAME_SHORT="$(hostname -s)"
+EGREP_BIN="$(command -v egrep)"
+if [ $? -ne 0 -o -z "$EGREP_BIN" ]; then echo "Failed to locate 'egrep'."; exit 1; fi
+FIND_BIN="$(command -v find)"
+if [ $? -ne 0 -o -z "$FIND_BIN" ]; then echo "Failed to locate 'find'."; exit 1; fi
+LS_BIN="$(command -v ls)"
+if [ $? -ne 0 -o -z "$LS_BIN" ]; then echo "Failed to locate 'ls'."; exit 1; fi
+LS_ARGS="-lAd"
+SENDMAIL_BIN="$(command -v sendmail)"
+if [ $? -ne 0 -o -z "$SENDMAIL_BIN" ]; then echo "Failed to locate 'sendmail'."; exit 1; fi
+STAT_BIN="$(command -v stat)"
+if [ $? -ne 0 -o -z "$STAT_BIN" ]; then echo "Failed to locate 'stat'."; exit 1; fi
+STAT_ARGS="-c %a"
+
+#This should be the full path to your config file
+CONF_LOCATION="/root/watchd.conf"
+
+#Main script
+source $CONF_LOCATION
+
+#First we check that we're supposed to be running checks. If not, simply exit as everything that's done after here is check processing.
+if [ "$ENABLE_CHECKING" != "YES" ]; then
+	exit 0
+fi
+#Output variables. OUTPUT is the internal variable which is sent to the state file. HR_OUTPUT is the data that's sent in emails.
+OUTPUT=""
+HR_OUTPUT=""
+#Counters
+CHANGE_COUNT=0
+DESTROY_COUNT=0
+CREATION_COUNT=0
+F_SKIPPED_COUNT=0
+PERMCHANGE_COUNT=0
+OWNERCHANGE_COUNT=0
+#Delimiters
+IFSB="$IFS"
+IFSN="
+"
+#First we get a listing of all files.
+LS_OUT="$($FIND_BIN $WATCH_DIR -type f -exec $LS_BIN $LS_ARGS {} +)"
+PREVOUT="$(cat $WATCH_STATE_FILE)"
+IFS="$IFSN"
+#Format of the state file is as follows: $MD5SUM $OCTAL_PERMISSIONS $OWNER $GROUP $FILENAME
+for file in $LS_OUT; do
+	IFS="$IFSB"
+	#| is used as a delimiter throughout this script due to the fact that it generally isn't used in filenames.
+	#Get the filename, octal permissions and owner/group
+	FILENAME="$(echo $file|sed "s|.* $WATCH_DIR|$WATCH_DIR|g")"
+	GREP_FNAME="$(echo $FILENAME|sed "s|\^|\\\^|g")"
+	PREV_STATE="$(echo "$PREVOUT"|$EGREP_BIN " $GREP_FNAME$")"
+	#Variable initialisation
+	RUN_CHECKS="YES"
+	TOOUT=""
+	CHECKOUT=""
+	FPERMS="000"
+	FOWNER="nobody nobody"
+	FINTEGRITY="d41d8cd98f00b204e9800998ecf8427e"
+	FILESTATE=""
+	SKIPFILE_OUT="$(echo "$GREP_FNAME"|$EGREP_BIN "$FILES_TO_SKIP")"
+	if [ $? -eq 0 -a ! -z "$SKIPFILE_OUT" ]; then
+		#We're supposed to skip this file, so we do.
+		RUN_CHECKS="NO"
+		F_SKIPPED_COUNT=$(($F_SKIPPED_COUNT+1))
+	else
+		if [ "$CHECK_FILES_PERMS_OWNER_CHANGED" == "YES" ]; then
+			FPERMS="$($STAT_BIN $STAT_ARGS "$FILENAME")"
+			FOWNER="$(echo $file|awk '{print $3 " " $4}')"
+		fi
+		#Check integrity with md5sum
+		if [ "$CHECK_FILES_CHANGED" == "YES" ]; then
+			FINTEGRITY="$(md5sum "$FILENAME"|awk '{print $1}')"
+		fi
+		CHECKOUT="$FILENAME (Perm: $FPERMS, Owner/Group: $FOWNER) -- "
+	fi
+	TOOUT="$FINTEGRITY $FPERMS $FOWNER $FILENAME"
+	if [ $? -ne 0 -o -z "$PREV_STATE" ] && [ "$RUN_CHECKS" == "YES" ]; then
+		#File didn't exist previously
+		CHECKOUT="$CHECKOUT$STR_FILECREATED"
+		FILESTATE="EFILENEW"
+		CREATION_COUNT=$(($CREATION_COUNT+1))
+	else
+		#File existed previously. First we check the md5sum
+		PREV_INTEGRITY="$(echo $PREV_STATE|awk '{print $1}')"
+		if [ "$PREV_INTEGRITY" != "$FINTEGRITY" ] && [ "$RUN_CHECKS" == "YES" ] && [ "$CHECK_FILES_CHANGED" == "YES" ]; then
+			#Integrity check failed, file contents were modified
+			CHECKOUT="$CHECKOUT$STR_FILECHANGED "
+			FILESTATE="EFILECHANGED"
+			CHANGE_COUNT=$(($CHANGE_COUNT+1))
+		fi
+		#Then we check permissions
+		PREV_PERMS="$(echo $PREV_STATE|awk '{print $2}')"
+		if [ "$PREV_PERMS" != "$FPERMS" ] && [ "$RUN_CHECKS" == "YES" ] && [ "$CHECK_FILES_PERMS_OWNER_CHANGED" == "YES" ]; then
+			#Permissions check failed, permissions were modified
+			CHECKOUT="$CHECKOUT$STR_PERMSCHANGED "
+			FILESTATE="$FILESTATE EPERMSCHANGED"
+			PERMCHANGE_COUNT=$(($PERMCHANGE_COUNT+1))
+		fi
+		#Then we check ownership
+		PREV_OWNERGROUP="$(echo $PREV_STATE|awk '{print $3 " " $4}')"
+		if [ "$PREV_OWNERGROUP" != "$FOWNER" ] && [ "$RUN_CHECKS" == "YES" ] && [ "$CHECK_FILES_PERMS_OWNER_CHANGED" == "YES" ]; then
+			#Ownership check failed, owner or group has changed
+			CHECKOUT="$CHECKOUT$STR_OWNCHANGED "
+			FILESTATE="$FILESTATE EOWNERCHANGED"
+			OWNERCHANGE_COUNT=$(($OWNERCHANGE_COUNT+1))
+		fi
+	fi
+	if [ ! -z "$FILESTATE" ] && [ "$RUN_CHECKS" == "YES" ]; then
+		HR_OUTPUT="$HR_OUTPUT$CHECKOUT$IFSN"
+	fi
+	OUTPUT="$OUTPUT$TOOUT$IFSN"
+	IFS="$IFSN"
+done
+IFS="$IFSB"
+#At this point we've checked all files that currently exist. Let's now get a full list of all previous files and check if any are now deleted
+#The list of files to skip does not apply here.
+if [ "$CHECK_FILES_DESTROYED" == "YES" ]; then
+	IFS="$IFSN"
+	for file in $PREVOUT; do
+		IFS="$IFSB"
+		CHECKOUT=""
+		FILENAME="$(echo $file|sed "s|.* $WATCH_DIR|$WATCH_DIR|g")"
+		if [ ! -f "$FILENAME" ]; then
+			CHECKOUT="File deleted: $FILENAME"
+			DESTROY_COUNT=$(($DESTROY_COUNT+1))
+		fi
+		if [ ! -z "$CHECKOUT" ]; then
+			HR_OUTPUT="$HR_OUTPUT$CHECKOUT$IFSN"
+		fi
+		IFS="$IFSN"
+	done
+	IFS="$IFSB"
+fi
+#We've now completed all checks. Check if there's anything to send out, and email.
+COUNT_OUT="$CREATION_COUNT new files, $CHANGE_COUNT modified files, $DESTROY_COUNT files were deleted, $PERMCHANGE_COUNT files with different permissions, $OWNERCHANGE_COUNT files with different ownership data. $F_SKIPPED_COUNT files were found, but skipped, and will not be included in the detailed log of events."
+if [ ! -z "$HR_OUTPUT" ]; then
+	#We construct the email
+	EMAILOUT="Subject: $EMAIL_SUBJ
+Date: $(date -u +"%a, %d %h %Y %T +0000")
+From: $HOSTNAME <$EMAIL_FROM>
+To: $EMAIL_TO <$EMAIL_ADDR>
+
+$EMAIL_BODY_HEAD$IFSN$COUNT_OUT$IFSN$IFSN$EMAIL_BODY_DETAIL$IFSN$IFSN$HR_OUTPUT$IFSN$EMAIL_BODY_TAIL"
+	#Send the email
+	if [ "$ENABLE_EMAIL" == "YES" ]; then
+		echo "$EMAILOUT"|$SENDMAIL_BIN $EMAIL_FROM $EMAIL_ADDR
+	fi
+	#Make a backup of the old statefile and write a new one
+	cp $WATCH_STATE_FILE $WATCH_STATE_FILE.previous
+	echo "$OUTPUT" > $WATCH_STATE_FILE
+fi
+#And we're done.
