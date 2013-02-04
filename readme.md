@@ -12,3 +12,4 @@ Scripts
 
 This readme contains an up to date list of all scripts in the repo + their descriptions:
 - nscheck: Bash - DNS diagnosis script
+- mailview: Perl - Script to parse HTML email and format it in a text-reader-friendly way.
