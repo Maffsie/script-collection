@@ -1,4 +1,4 @@
-#!/usr/local/bin/bash
+#!/usr/bin/env bash
 #nscheck.sh - Simple script to do fairly good DNS diagnostics, to determine: Failing/slow nameservers, result inconsistency and so on.
 
 # Copyright (c) 2012, Matthew Connelly
@@ -18,7 +18,11 @@
 TIMEOUT=1
 
 #Binary locations
-DIG_BIN="/usr/bin/dig"
+DIG_BIN="$(command -v dig)"
+if [ $? -ne 0 -o -z "$DIG_BIN" ]; then
+	echo "Error: 'dig' cannot be found. Please ensure you have the relevant package for 'dig' installed."
+	exit 1
+fi
 
 #Internal variables
 DIG_RECORD_TYPE="A"
