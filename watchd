@@ -19,7 +19,7 @@ if [ $? -ne 0 -o -z "$STAT_BIN" ]; then echo "Failed to locate 'stat'."; exit 1;
 STAT_ARGS="-c %a"
 
 #This should be the full path to your config file
-CONF_LOCATION="/root/watchd.conf"
+CONF_LOCATION="/etc/watchd.conf"
 
 #Main script
 source $CONF_LOCATION
