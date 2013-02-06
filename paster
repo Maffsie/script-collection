@@ -1,0 +1,40 @@
+#!/usr/local/bin/bash
+#Paster - Shellscript for taking stdin, determining language and then sending it to a pastebin site.
+
+P_IN=$(cat -)
+
+SPRUNGE_URL="http://sprunge.us/"
+IX_URL="http://ix.io/"
+CURL_BIN="/usr/local/bin/curl"
+CURL_OPTS="-s"
+FILE_BIN="/usr/bin/file"
+SPRUNGE="sprunge=<-"
+IX="-F f:1=<-"
+
+#Script type detection
+TYPEINFO="$(echo $P_IN|$FILE_BIN -|awk '{print tolower($2) " " tolower($3)}')"
+SCRIPT_TYPE=""
+case $TYPEINFO in
+	bourne*)
+		SCRIPT_TYPE="bash"
+		;;
+	perl*)
+		SCRIPT_TYPE="perl"
+		;;
+	python*)
+		SCRIPT_TYPE="python"
+		;;
+	ruby*)
+		SCRIPT_TYPE="ruby"
+		;;
+	"c source"*)
+		SCRIPT_TYPE="c"
+		;;
+	*)
+		SCRIPT_TYPE="plain"
+		;;
+esac
+IX_EXTRA="-F name:1=stdin -F ext:1=$SCRIPT_TYPE"
+#OUT="$(echo "$P_IN"|$CURL_BIN $CURL_OPTS $SPRUNGE $SPRUNGE_URL)"
+OUT="$(echo "$P_IN"|$CURL_BIN $CURL_OPTS $IX_EXTRA $IX $IX_URL)"
+echo $OUT
