@@ -1,40 +1,55 @@
-#!/usr/local/bin/bash
+#!/usr/bin/env bash
 #Paster - Shellscript for taking stdin, determining language and then sending it to a pastebin site.
 
-P_IN=$(cat -)
+# Functions
+function usage () {
+	echo "paster - send piped data or a file to a pastebin service.
+Usage:
+pipe_data | paster
+paster /path/to/file"
+}
 
-SPRUNGE_URL="http://sprunge.us/"
-IX_URL="http://ix.io/"
+#Get STDIN or file input.
+P_IN=$(cat -)
+if [ -z "$P_IN" -a ! -z "$1" -a -e "$1" ]; then
+	P_IN=$(cat $1)
+elif [ -z "$P_IN" -a -z "$1" ]; then
+	echo "Error: No input"
+	usage
+elif [ -z "$P_IN" -a ! -z "$1" -a ! -e "$1" ]; then
+	echo "Error: File $1 not found."
+	usage
+fi
+
+# Variables
 CURL_BIN="/usr/local/bin/curl"
-CURL_OPTS="-s"
+CURL_OPTS="-sd"
 FILE_BIN="/usr/bin/file"
-SPRUNGE="sprunge=<-"
-IX="-F f:1=<-"
+PASTE_URL="http://slexy.org/index.php/submit"
+POST_DATA="language=LANGTYPE&comment=&author=&permissions=1&desc=stdin&linenumbers=0&tabbing=true&expire=0&raw_paste=<-"
 
 #Script type detection
 TYPEINFO="$(echo $P_IN|$FILE_BIN -|awk '{print tolower($2) " " tolower($3)}')"
 SCRIPT_TYPE=""
 case $TYPEINFO in
 	bourne*)
-		SCRIPT_TYPE="bash"
+		POST_DATA="$(echo $POST_DATA|sed 's/LANGTYPE/bash/')"
 		;;
 	perl*)
-		SCRIPT_TYPE="perl"
+		POST_DATA="$(echo $POST_DATA|sed 's/LANGTYPE/perl/')"
 		;;
 	python*)
-		SCRIPT_TYPE="python"
+		POST_DATA="$(echo $POST_DATA|sed 's/LANGTYPE/python/')"
 		;;
 	ruby*)
-		SCRIPT_TYPE="ruby"
+		POST_DATA="$(echo $POST_DATA|sed 's/LANGTYPE/ruby/')"
 		;;
 	"c source"*)
-		SCRIPT_TYPE="c"
+		POST_DATA="$(echo $POST_DATA|sed 's/LANGTYPE/c/')"
 		;;
 	*)
-		SCRIPT_TYPE="plain"
+		POST_DATA="$(echo $POST_DATA|sed 's/LANGTYPE/text/')"
 		;;
 esac
-IX_EXTRA="-F name:1=stdin -F ext:1=$SCRIPT_TYPE"
-#OUT="$(echo "$P_IN"|$CURL_BIN $CURL_OPTS $SPRUNGE $SPRUNGE_URL)"
-OUT="$(echo "$P_IN"|$CURL_BIN $CURL_OPTS $IX_EXTRA $IX $IX_URL)"
-echo $OUT
+OUT=$(echo "$P_IN"|$CURL_BIN $CURL_OPTS $POST_DATA $PASTE_URL)
+echo "Return code: $? ; Output: $OUT"
