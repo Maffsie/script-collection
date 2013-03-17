@@ -1,41 +1,46 @@
 #!/usr/bin/env perl
 #aslookup.pl - Looks up information on a given ASN or IP address
-
 use strict;
 use warnings;
-
 use Net::Whois::RIPE;
+
+sub handle_whois_output {
+	my ($obj,$target) = @_;
+	while($obj->isnt_exhausted) {
+		my ($asnum,$asname,$descr,$origin,$route);
+		my @whoisdata = split /\n/, $obj->value();
+		foreach (@whoisdata) {
+			$asnum = $_ if /^aut-num:/;
+			$asname = $_ if /^as-name:/;
+			$descr = $_ if /^descr:/;
+			$origin = $_ if /^origin:/;
+			$route = $_ if /^route[6]?:/;
+		}
+		$descr =~ s/.*:[ ]+//;
+		if($target =~ /^AS.*/i) {
+			$asnum =~ s/.*:[ ]+//;
+			$asname =~ s/.*:[ ]+//;
+			print "$target is $descr ($asname)\n";
+		} else {
+			$origin =~ s/.*:[ ]+//;
+			$route =~ s/.*:[ ]+//;
+			print "$route advertised by $origin - $descr\n";
+		}
+	}
+}
 
 my $default_as_server = "whois.radb.net";
 my %whois_options = (
 	"hostname"	=>	$default_as_server,
 );
-
 if($#ARGV < 0 || $ARGV[0] eq "") {
 	print "Provide an IP or ASN to look up";
 	exit;
 }
 my $target = $ARGV[0];
 my $whois = Net::Whois::RIPE->new(%whois_options);
+my $ripewhois = Net::Whois::RIPE->new();
 my $witerator = $whois->query($target);
-while($witerator->isnt_exhausted) {
-	my ($asnum,$asname,$descr,$origin,$route);
-	my @whoisdata = split /\n/, $witerator->value();
-	foreach (@whoisdata) {
-		$asnum = $_ if /^aut-num:/;
-		$asname = $_ if /^as-name:/;
-		$descr = $_ if /^descr:/;
-		$origin = $_ if /^origin:/;
-		$route = $_ if /^route:/;
-	}
-	$descr =~ s/.*:[ ]+//;
-	if($target =~ /^AS.*/i) {
-		$asnum =~ s/.*:[ ]+//;
-		$asname =~ s/.*:[ ]+//;
-		print "$target is $descr ($asname)\n";
-	} else {
-		$origin =~ s/.*:[ ]+//;
-		$route =~ s/.*:[ ]+//;
-		print "$route advertised by $origin - $descr\n";
-	}
-}
+handle_whois_output($witerator,$target);
+my $riterator = $ripewhois->query($target);
+#handle_whois_output($riterator,$target);
