@@ -28,12 +28,12 @@ while($witerator->isnt_exhausted) {
 		$origin = $_ if /^origin:/;
 		$route = $_ if /^route:/;
 	}
+	$descr =~ s/.*:[ ]+//;
 	if($target =~ /^AS.*/i) {
 		$asnum =~ s/.*:[ ]+//;
 		$asname =~ s/.*:[ ]+//;
-		print "$target advertised by $asnum - $asname\n";
+		print "$target is $descr\n";
 	} else {
-		$descr =~ s/.*:[ ]+//;
 		$origin =~ s/.*:[ ]+//;
 		$route =~ s/.*:[ ]+//;
 		print "$route advertised by $origin - $descr\n";
