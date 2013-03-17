@@ -32,7 +32,7 @@ while($witerator->isnt_exhausted) {
 	if($target =~ /^AS.*/i) {
 		$asnum =~ s/.*:[ ]+//;
 		$asname =~ s/.*:[ ]+//;
-		print "$target is $descr\n";
+		print "$target is $descr ($asname)\n";
 	} else {
 		$origin =~ s/.*:[ ]+//;
 		$route =~ s/.*:[ ]+//;
