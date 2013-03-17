@@ -11,7 +11,11 @@ my %whois_options = (
 	"hostname"	=>	$default_as_server,
 );
 
-my $target = "1.1.1.1";
+if($#ARGV < 0 || $ARGV[0] eq "") {
+	print "Provide an IP or ASN to look up";
+	exit;
+}
+my $target = $ARGV[0];
 my $whois = Net::Whois::RIPE->new(%whois_options);
 my $witerator = $whois->query($target);
 while($witerator->isnt_exhausted) {
