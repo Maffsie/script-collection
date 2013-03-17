@@ -1,21 +1,16 @@
-#/usr/bin/env bash
+#!/bin/bash
 # watchd - Bash script to check the integrity/state of a given directory. Meant to be run continuously in cron.
 # Written 9th January 2013 by Matthew Connelly <maff@maff.me.uk>
 
 #Internal variables
 HOSTNAME="$(hostname -f)"
 HOSTNAME_SHORT="$(hostname -s)"
-EGREP_BIN="$(command -v egrep)"
-if [ $? -ne 0 -o -z "$EGREP_BIN" ]; then echo "Failed to locate 'egrep'."; exit 1; fi
-FIND_BIN="$(command -v find)"
-if [ $? -ne 0 -o -z "$FIND_BIN" ]; then echo "Failed to locate 'find'."; exit 1; fi
-LS_BIN="$(command -v ls)"
-if [ $? -ne 0 -o -z "$LS_BIN" ]; then echo "Failed to locate 'ls'."; exit 1; fi
+EGREP_BIN="/bin/egrep"
+FIND_BIN="/bin/find"
+LS_BIN="/bin/ls"
 LS_ARGS="-lAd"
-SENDMAIL_BIN="$(command -v sendmail)"
-if [ $? -ne 0 -o -z "$SENDMAIL_BIN" ]; then echo "Failed to locate 'sendmail'."; exit 1; fi
-STAT_BIN="$(command -v stat)"
-if [ $? -ne 0 -o -z "$STAT_BIN" ]; then echo "Failed to locate 'stat'."; exit 1; fi
+SENDMAIL_BIN="/usr/sbin/sendmail"
+STAT_BIN="/usr/bin/stat"
 STAT_ARGS="-c %a"
 
 #This should be the full path to your config file
@@ -68,7 +63,7 @@ for file in $LS_OUT; do
 		RUN_CHECKS="NO"
 		F_SKIPPED_COUNT=$(($F_SKIPPED_COUNT+1))
 	else
-		if [ "$CHECK_FILES_PERMS_OWNER_CHANGED" == "YES" ]; then
+		if [ "$CHECK_FILE_PERMS_OWNER_CHANGED" == "YES" ]; then
 			FPERMS="$($STAT_BIN $STAT_ARGS "$FILENAME")"
 			FOWNER="$(echo $file|awk '{print $3 " " $4}')"
 		fi
@@ -95,7 +90,7 @@ for file in $LS_OUT; do
 		fi
 		#Then we check permissions
 		PREV_PERMS="$(echo $PREV_STATE|awk '{print $2}')"
-		if [ "$PREV_PERMS" != "$FPERMS" ] && [ "$RUN_CHECKS" == "YES" ] && [ "$CHECK_FILES_PERMS_OWNER_CHANGED" == "YES" ]; then
+		if [ "$PREV_PERMS" != "$FPERMS" ] && [ "$RUN_CHECKS" == "YES" ] && [ "$CHECK_FILE_PERMS_OWNER_CHANGED" == "YES" ]; then
 			#Permissions check failed, permissions were modified
 			CHECKOUT="$CHECKOUT$STR_PERMSCHANGED "
 			FILESTATE="$FILESTATE EPERMSCHANGED"
@@ -103,7 +98,7 @@ for file in $LS_OUT; do
 		fi
 		#Then we check ownership
 		PREV_OWNERGROUP="$(echo $PREV_STATE|awk '{print $3 " " $4}')"
-		if [ "$PREV_OWNERGROUP" != "$FOWNER" ] && [ "$RUN_CHECKS" == "YES" ] && [ "$CHECK_FILES_PERMS_OWNER_CHANGED" == "YES" ]; then
+		if [ "$PREV_OWNERGROUP" != "$FOWNER" ] && [ "$RUN_CHECKS" == "YES" ] && [ "$CHECK_FILE_PERMS_OWNER_CHANGED" == "YES" ]; then
 			#Ownership check failed, owner or group has changed
 			CHECKOUT="$CHECKOUT$STR_OWNCHANGED "
 			FILESTATE="$FILESTATE EOWNERCHANGED"
@@ -147,7 +142,7 @@ To: $EMAIL_TO <$EMAIL_ADDR>
 
 $EMAIL_BODY_HEAD$IFSN$COUNT_OUT$IFSN$IFSN$EMAIL_BODY_DETAIL$IFSN$IFSN$HR_OUTPUT$IFSN$EMAIL_BODY_TAIL"
 	#Send the email
-	if [ "$ENABLE_EMAIL" == "YES" ]; then
+	if [ "$NOTIFY_EMAIL" == "YES" ]; then
 		echo "$EMAILOUT"|$SENDMAIL_BIN $EMAIL_FROM $EMAIL_ADDR
 	fi
 	#Make a backup of the old statefile and write a new one

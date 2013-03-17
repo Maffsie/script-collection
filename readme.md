@@ -11,6 +11,7 @@ Scripts
 -------
 
 This readme contains an up to date list of all scripts in the repo + their descriptions:
+- aslookup: Perl - Script to look up ASN information for a given IP or ASN
 - mailview: Perl - Script to parse HTML email and format it in a text-reader-friendly way.
 - nscheck: Bash - DNS diagnosis script
 - paster: Bash - Script to take standard input and 'paste' it to a pastebin site.

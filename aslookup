@@ -1,0 +1,19 @@
+#!/usr/bin/env perl
+#aslookup.pl - Looks up information on a given ASN or IP address
+
+use strict;
+use warnings;
+
+use Net::Whois::RIPE;
+
+my $default_as_server = "whois.radb.net";
+my %whois_options = (
+	"hostname"	=>	$default_as_server,
+);
+
+my $whois = Net::Whois::RIPE->new(%whois_options);
+my $witerator = $whois->query('1.1.1.1');
+while($witerator->isnt_exhausted()) {
+	my $wdata = $witerator->value()
+	
+}
