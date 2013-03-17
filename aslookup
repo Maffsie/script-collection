@@ -3,30 +3,64 @@
 use strict;
 use warnings;
 use Net::Whois::RIPE;
+use Data::Dumper;
+
+sub output_result {
+	my ($target, %result) = @_;
+	if($target =~ /^AS/i) {
+		print "$target is ", $result{'descr'}, " (", $result{'as-name'}, ")\n";
+	} else {
+		my $as_descr = get_AS_descr($result{'origin'});
+		my $routename = "route";
+		$routename = "route6" unless defined $result{'route'};
+		print "$target (", $result{$routename}, " - ", $result{'descr'}, ") is advertised by ", $result{'origin'}, " $as_descr", "\n";
+	}
+}
 
 sub handle_whois_output {
-	my ($obj,$target) = @_;
+	my ($target,$obj) = @_;
 	while($obj->isnt_exhausted) {
-		my ($asnum,$asname,$descr,$origin,$route);
+		my %wresult;
 		my @whoisdata = split /\n/, $obj->value();
 		foreach (@whoisdata) {
-			$asnum = $_ if /^aut-num:/;
-			$asname = $_ if /^as-name:/;
-			$descr = $_ if /^descr:/;
-			$origin = $_ if /^origin:/;
-			$route = $_ if /^route[6]?:/;
+			my $key = $_;
+			$key =~ s/^([a-z\-0-9]+):.*/$1/;
+			my $data = $_;
+			$data =~ s/^.*:[ ]+(.*)/$1/;
+			$wresult{$key} = $data;
 		}
-		$descr =~ s/.*:[ ]+//;
-		if($target =~ /^AS.*/i) {
-			$asnum =~ s/.*:[ ]+//;
-			$asname =~ s/.*:[ ]+//;
-			print "$target is $descr ($asname)\n";
-		} else {
-			$origin =~ s/.*:[ ]+//;
-			$route =~ s/.*:[ ]+//;
-			print "$route advertised by $origin - $descr\n";
+		output_result($target,%wresult);
+	}
+}
+
+sub get_AS_descr {
+	my $target = shift;
+	my $tw = do_whois($target);
+	my @whoisdata = split /\n/, $tw->value();
+	my ($descr, $asname);
+	foreach (@whoisdata) {
+		if(/^as-name:/) {
+			$asname = $_;
+			$asname =~ s/^.*:[ ]+(.*)/$1/;
+		}
+		if(/^descr:/) {
+			$descr = $_;
+			$descr =~ s/^.*:[ ]+(.*)/$1/;
+			last;
 		}
 	}
+	return "$asname - $descr";
+}
+
+
+sub do_whois {
+	my $target = shift;
+	my $default_as_server = "whois.radb.net";
+	my %whois_options = (
+		"hostname"	=>	$default_as_server,
+	);
+	my $w = Net::Whois::RIPE->new(%whois_options);
+	return $w->query($target);
 }
 
 my $default_as_server = "whois.radb.net";
@@ -39,8 +73,5 @@ if($#ARGV < 0 || $ARGV[0] eq "") {
 }
 my $target = $ARGV[0];
 my $whois = Net::Whois::RIPE->new(%whois_options);
-my $ripewhois = Net::Whois::RIPE->new();
 my $witerator = $whois->query($target);
-handle_whois_output($witerator,$target);
-my $riterator = $ripewhois->query($target);
-#handle_whois_output($riterator,$target);
+handle_whois_output($target, $witerator);
