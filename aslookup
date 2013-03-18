@@ -3,7 +3,6 @@
 use strict;
 use warnings;
 use Net::Whois::RIPE;
-use Data::Dumper;
 
 sub output_result {
 	my ($target, %result) = @_;

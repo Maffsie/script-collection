@@ -7,6 +7,11 @@ Preface
 I write scripts a lot. Partly as a hobby, partly to make my own work easier and partly for my job.
 I tend to choose whatever language is most appropriate for what I'm doing, although I usually prefer Bash.
 
+License
+-------
+
+Unless otherwise stated, all scripts and code in this repo are licensed under the 3-clause BSD license.
+
 Scripts
 -------
 
