@@ -21,6 +21,10 @@ sub handle_whois_output {
 	while($obj->isnt_exhausted) {
 		my %wresult;
 		my @whoisdata = split /\n/, $obj->value();
+		if($whoisdata[0] =~ /^%/) {
+			print "Lookup for $target failed!\n";
+			return;
+		}
 		foreach (@whoisdata) {
 			my $key = $_;
 			$key =~ s/^([a-z\-0-9]+):.*/$1/;
