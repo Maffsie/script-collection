@@ -7,7 +7,11 @@ use Net::Whois::RIPE;
 sub output_result {
 	my ($target, %result) = @_;
 	if($target =~ /^AS/i) {
-		print "$target is ", $result{'descr'}, " (", $result{'as-name'}, ")\n";
+		my $out = "$target is ".$result{'descr'};
+		if(defined($result{'as-name'})) {
+			$out .= " (".$result{'as-name'}.")";
+		}
+		print "$out\n";
 	} else {
 		my $as_descr = get_AS_descr($result{'origin'});
 		my $routename = "route";
@@ -17,13 +21,21 @@ sub output_result {
 }
 
 sub handle_whois_output {
-	my ($target,$obj) = @_;
+	my ($target,$obj,$did_ripe_whois) = @_;
 	while($obj->isnt_exhausted) {
 		my %wresult;
 		my @whoisdata = split /\n/, $obj->value();
-		if($whoisdata[0] =~ /^%/) {
-			print "Lookup for $target failed!\n";
+		if(!defined($whoisdata[0])) {
+			next;
+		} elsif($whoisdata[0] =~ /^%.*(no entries found)/i) {
+			if($did_ripe_whois == 1 || $target !~ /^AS/i) {
+				print "Lookup for $target failed! \n";
+			} else {
+				handle_whois_output($target, do_ripe_whois($target), 1);
+			}
 			return;
+		} elsif($whoisdata[0] =~ /^%/) {
+			next;
 		}
 		foreach (@whoisdata) {
 			my $key = $_;
@@ -65,16 +77,16 @@ sub do_whois {
 	my $w = Net::Whois::RIPE->new(%whois_options);
 	return $w->query($target);
 }
+sub do_ripe_whois {
+	my $target = shift;
+	my $w = Net::Whois::RIPE->new();
+	return $w->query($target);
+}
 
 my $default_as_server = "whois.radb.net";
-my %whois_options = (
-	"hostname"	=>	$default_as_server,
-);
 if($#ARGV < 0 || $ARGV[0] eq "") {
 	print "Provide an IP or ASN to look up";
 	exit;
 }
 my $target = $ARGV[0];
-my $whois = Net::Whois::RIPE->new(%whois_options);
-my $witerator = $whois->query($target);
-handle_whois_output($target, $witerator);
+handle_whois_output($target, do_whois($target), 0);
