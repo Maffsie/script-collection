@@ -3,6 +3,7 @@
 
 #TODO
 # - Handle multiple results for single record names (DNS round-robin)
+# - Use getopt for better commandline arg parsing
 
 #Configurables
 TIMEOUT=1
@@ -20,6 +21,7 @@ function usage () {
 NOTE: This script will not, at present, function properly for DNS queries which result in more than one record of the same type (ie, DNS round robins)
 
 Usage: nscheck [-4|-6] DNS.ENTITY
+nscheck -m: Show machine-parseable output (keypairs indicating nameserver responsiveness)
 nscheck -h: Show this usage.
 nscheck -4: Use IPv4 [Default].
 nscheck -6: Use IPv6."
@@ -27,6 +29,7 @@ nscheck -6: Use IPv6."
 
 #Internal variables
 DIG_RECORD_TYPE="A"
+HUMAN_READABLE=1
 ZONE=""
 if [ "$1" == "-6" ]; then
 	DIG_RECORD_TYPE="AAAA"
@@ -36,6 +39,9 @@ elif [ "$1" == "-4" ]; then
 elif [ "$1" == "-h" ]; then
 	usage
 	exit 0
+elif [ "$1" == "-m" ]; then
+	HUMAN_READABLE=0
+	ZONE=$2
 else
 	ZONE=$1
 fi
@@ -44,14 +50,17 @@ if [ -z "$ZONE" ]; then
 	exit 1
 fi
 DOMAIN=$ZONE
+MACHINE_SEPARATOR=";"
 IPS_REPORTED=""
 NS_REPORTED=""
 FAILED_NS=""
 IPS_CHECKED=""
 SUCCESS_OUT="NS | NS-IP | NS-REVERSE | IP | REVERSE"
 FAIL_OUT="NS | NS-IP | NS-REVERSE"
+MACHINE_OUT=""
 
 #Because this is a DNS debugging script, we don't rely on a domain's nameservers themselves for a list of nameservers. Instead, we query root and TLD nameservers.
+#We could in future use WHOIS data to get nameservers.
 
 #First we make sure we're querying the nameservers for the actual domain and not a subdomain. Also; remove trailing dot.
 OUT=$($DIG_BIN $ZONE SOA|grep "^;; AUTH" -A1|tail -n1|awk '{print $1}'|sed -e 's/.$//g')
@@ -92,13 +101,21 @@ for ns in $($DIG_BIN +short $ZONE NS); do
 				fi
 				SUCCESS_OUT="$SUCCESS_OUT
 $ns | $ip | $REVERSE | $OUT | $REVOUT"
+				MACHINE_OUT="$MACHINE_OUT$ip${MACHINE_SEPARATOR}1
+"
 			else
 				FAIL_OUT="$FAIL_OUT
 $ns | $ip | $REVERSE"
+				MACHINE_OUT="$MACHINE_OUT$ip${MACHINE_SEPARATOR}0
+"
 			fi
 		fi
 	done
 done
+if [ $HUMAN_READABLE -eq 0 ]; then
+	echo -n "$MACHINE_OUT"|sort -n
+	exit
+fi
 if [[ $ZONE != $DOMAIN ]]; then
 	echo "Found root zone for $DOMAIN: $ZONE"
 fi
