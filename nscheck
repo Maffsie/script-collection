@@ -22,20 +22,25 @@ DIG_BIN="/usr/bin/dig"
 
 #Internal variables
 DIG_RECORD_TYPE="A"
+VERSION="0.2"
 ZONE=""
 if [ "$1" == "-6" ]; then
 	DIG_RECORD_TYPE="AAAA"
 	ZONE=$2
 elif [ "$1" == "-4" ]; then
 	ZONE=$2
-elif [ "$1" == "-h" ]; then
-	echo "nscheck 0.1: Bash script to do DNS diagnosis.
+elif [ "$1" == "-t" ]; then
+	DIG_RECORD_TYPE=$2
+	ZONE=$3
+elif [ "$1" == "-h" -o -z "$1" ]; then
+	echo "$0 $VERSION: Bash script to do DNS diagnosis.
 NOTE: This script will not, at present, function properly for DNS queries which result in more than one record of the same type (ie, DNS round robins)
 
-Usage: nscheck [-4|-6] DNS.ENTITY
-nscheck -h: Show this usage.
-nscheck -4: Use IPv4 [Default].
-nscheck -6: Use IPv6."
+Usage: $0 [-4|-6|-t RTYPE] DNS.ENTITY
+$0 -h: Show this usage.
+$0 -4: Use IPv4 [Default].
+$0 -6: Use IPv6.
+$0 -t: Ask for specified record type, rather than A or AAAA."
 	exit 0
 else
 	ZONE=$1
