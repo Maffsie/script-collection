@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 #wdns - Script to edit specific zones or the master zones conf file
 #Generate random string of characters. This is to ensure we're not directly editing things
 #TODO: Make the creation and management of reverse zones easier.
