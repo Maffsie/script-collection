@@ -29,99 +29,99 @@ USAGE="wdns - Small bash script for maintaining BIND9 configs.
 # wnds -rs domain.name   - resign DNSSEC-secured zone"
 if [ "$1" == "" ]; then
 	echo "$USAGE"
-	return 1
+	exit 1
 elif [ "$1" == "named.conf" ]; then
 	#Edit the master config by default
 	echo "No zone specified, editing named.conf."
 	FILETOEDIT="named.conf"
 elif [ "$1" == "-h" ]; then
 	echo "$USAGE"
-	return 0
+	exit 0
 elif [ "$1" == "-d" ]; then
 	if [ "$2" == "" ]; then
 		echo "$USAGE"
-		return 1
+		exit 1
 	fi
 	echo "Deleting zone for $2."
 	if [ ! -f /etc/namedb/master/$2 ]; then
 		echo "Error: Zonefile for $2 doesn't exist!"
-		return 1
+		exit 1
 	fi
 	rm /etc/namedb/master/$2
 	if [ $? -ne 0 ]; then
 		echo "Error: Failed to delete zonefile /etc/namedb/master/$2."
-		return 1
+		exit 1
 	fi
-	return 0
+	exit 0
 elif [ "$1" == "-l" ]; then
 	echo "The following forward zones exist:"
 	ls -l /etc/namedb/master|egrep -v "\.db$|new.domain|\.last|\.arpa|\.signed$|^total "|awk '{print $9}'|sort
 	echo
 	echo "The following reverse zones exist:"
 	ls -l /etc/namedb/master/|egrep "\.arpa$"|egrep -v "\.last|\.signed$"|awk '{print $9}'|sort
-	return 0
+	exit 0
 elif [ "$1" == "-n" ]; then
 	if [ "$2" == "" ]; then
 		echo "$USAGE"
-		return 1
+		exit 1
 	fi
 	echo "Creating new zone for $2."
 	if [ -f /etc/namedb/master/$2 ]; then
 		echo "Error: Zonefile for $2 already exists. Use -nz to overwrite with new zone!"
-		return 1
+		exit 1
 	fi
 	#TODO: Validate input.
 	cat /etc/namedb/master/new.domain|sed "s/new\.domain/$2/g">/etc/namedb/master/$2
 	if [ $? -ne 0 ]; then
 		echo "Error: Failed to copy zone template to /etc/namedb/master/$2"
-		return 1
+		exit 1
 	fi
 	echo "Zone for $2 created. Run the following on all slaves:"
 	#TODO: Add zone to slaves
-	read -p "Hit return to open it for editing, or Ctrl-C to exit."
+	read -p "Hit exit to open it for editing, or Ctrl-C to exit."
 	wdns $2
-	return 0
+	exit 0
 elif [ "$1" == "-nz" ]; then
 	if [ "$2" == "" ]; then
 		echo "$USAGE"
-		return 1
+		exit 1
 	fi
 	echo "Recreating zone for $2."
 	if [ ! -f /etc/namedb/master/$2 ]; then
 		echo "Error: Zonefile for $2 does not exist. Use -n to create a new zone!"
-		return 1
+		exit 1
 	fi
 	#TODO: Validate input.
 	cat /etc/namedb/master/new.domain|sed "s/new\.domain/$2/g">/etc/namedb/master/$2
 	if [ $? -ne 0 ]; then
 		echo "Error: Failed to copy zone template to /etc/namedb/master/$2"
-		return 1
+		exit 1
 	fi
-	read -p "Zone recreated. Hit return to open it for editing, or Ctrl-C to exit."
+	read -p "Zone recreated. Hit exit to open it for editing, or Ctrl-C to exit."
 	wdns $2
-	return 0
+	exit 0
 elif [ "$1" == "-s" ]; then
 	if [ "$2" == "" ]; then
 		echo "$USAGE"
-		return 1
+		exit 1
 	fi
 	if [ ! -f /etc/namedb/master/$2 ]; then
 		echo "Error: Zonefile for $2 does not exist. Use -n to create a new zone!"
-		return 1
+		exit 1
 	fi
 	ZONE=$2
 	DNSSEC_DIR="/etc/namedb/dnssec"
 	DSKEYG_MSG="$(dnssec-keygen -f KSK -a RSASHA256 -b 2048 -K $DNSSEC_DIR -n ZONE $ZONE. 2>&1)"
 	if [ $? -ne 0 ]; then
 		echo "DNSSEC signing key generation failed! Error: $DSKEYG_MSG"
-		return 1
+		exit 1
 	fi
 	mv $DNSSEC_DIR/K$ZONE.+*.key $DNSSEC_DIR/K$ZONE.KSK.key
 	mv $DNSSEC_DIR/K$ZONE.+*.private $DNSSEC_DIR/K$ZONE.KSK.private
 	DSKEYG_MSG="$(dnssec-keygen -a RSASHA256 -b 2048 -K $DNSSEC_DIR -n ZONE $ZONE. 2>&1)"
 	if [ $? -ne 0 ]; then
 		echo "DNSSEC zone signing key generation failed! Error: $DSKEYG_MSG"
-		return 1
+		exit 1
 	fi
 	mv $DNSSEC_DIR/K$ZONE.+*.key $DNSSEC_DIR/K$ZONE.ZSK.key
 	mv $DNSSEC_DIR/K$ZONE.+*.private $DNSSEC_DIR/K$ZONE.ZSK.private
@@ -132,30 +132,30 @@ elif [ "$1" == "-s" ]; then
 	After this has been done, please remember to edit the zone definition in your bind config to change the zone file to '/etc/namedb/master/$ZONE.signed'" && echo
 	read -p "Press enter to open the zone for editing, or Ctrl-C to exit and add these later."
 	wdns $ZONE
-	return 0
+	exit 0
 elif [ "$1" == "-rs" ]; then
 	if [ "$2" == "" ]; then
 		echo "$USAGE"
-		return 1
+		exit 1
 	fi
 	if [ ! -f /etc/namedb/master/$2 ]; then
 		echo "Error: Zonefile for $2 does not exist. Use -n to create a new zone!"
-		return 1
+		exit 1
 	fi
 	ZONE=$2
 	DNSSEC_DIR="/etc/namedb/dnssec"
 	if [ ! -f /etc/namedb/master/$ZONE.signed ]; then
 		echo "Zone $ZONE doesn't appear to be DNSSEC-enabled! Use -s to sign an unsigned zone!"
-		return 1
+		exit 1
 	fi
 	if [ ! -f $DNSSEC_DIR/K$ZONE.KSK.key -o ! -f $DNSSEC_DIR/K$ZONE.ZSK.key ]; then
 		echo "Signing keys for $ZONE don't exist! Use -s to sign an unsigned zone!"
-		return 1
+		exit 1
 	fi
 	DNSSEC_OUT="$(dnssec-signzone -o $ZONE -d /etc/namedb/dnssec -K /etc/namedb/dnssec -k /etc/namedb/dnssec/K$ZONE.KSK.key /etc/namedb/master/$ZONE /etc/namedb/dnssec/K$ZONE.ZSK.key 2>&1)"
 	if [ $? -ne 0 ]; then
 		echo "DNSSEC signing failed! Error: $DNSSEC_OUT"
-		return 1
+		exit 1
 	fi
 	echo "Zone $ZONE resigned."
 	#Reload zones
@@ -163,9 +163,9 @@ elif [ "$1" == "-rs" ]; then
 	/etc/rc.d/named reload
 	if [ $? -ne 0 ]; then
 		echo "Error while reloading named!"
-		return 1
+		exit 1
 	fi
-	return 0
+	exit 0
 else
 	#Check if we want to edit the master zones config
 	if [ "$1" == "zones" ]; then
@@ -176,7 +176,7 @@ else
 		if [ ! -f /etc/namedb/master/$1 ]; then
 			#Error out if the zone doesn't exist. Zones should be created using the newzone function
 			echo "Zone for $1 doesn't exist!"
-			return 1
+			exit 1
 		fi
 		echo "Editing zonefile for $1."
 		FILETOEDIT="$1"
@@ -213,7 +213,7 @@ for (( ; ; )); do
 	NEWHASH=$(md5 -q /tmp/named.$RAND)
 	if [ "$ORIGHASH" == "$NEWHASH" ]; then
 		echo "No changes made to $FILETOEDIT."
-		return 0
+		exit 0
 	fi
 	echo -n "Checking $FILETOEDIT for errors... "
 	CHECK_OUT=$($CHECKRUN)
@@ -239,7 +239,7 @@ for (( ; ; )); do
 			break
 		else
 			echo "Error while reloading named!"
-			return 1
+			exit 1
 		fi
 	else
 		#Changes didn't clear named-checkzone
