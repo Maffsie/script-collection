@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
-#wdns - Script to edit specific zones or the master zones conf file
-#Generate random string of characters. This is to ensure we're not directly editing things
-#TODO: Make the creation and management of reverse zones easier.
+
+#wdns - BIND9 management script written in bash.
+#Licensed under the BSD 3-clause license.
+
+#TODO: Make the creation and management of reverse zones easier. IPv4 AND IPv6
 #TODO: Make the 'zones' file easier to manage. Automate creation, editing and removal of entries.
+#TODO: Add automated DNSSEC setup to the zones file
+#TODO: Complete rewrite to make everything more functional
+
+#Generate random string of characters. This is to ensure we're not directly editing things
 RAND=$(cat /dev/urandom|tr -cd "[:alnum:]"|head -c 8)
 FILETOEDIT=""
 ORIGDIR="/etc/namedb/"
@@ -19,7 +25,8 @@ USAGE="wdns - Small bash script for maintaining BIND9 configs.
 # wdns -l                - list all zones
 # wdns -n domain.name    - create new zonefile for domain.name
 # wdns -nz domain.name   - recreate blank zonefile for domain.name
-# wdns -s domain.name    - secure domain using DNSSEC"
+# wdns -s domain.name    - secure domain using DNSSEC
+# wnds -rs domain.name   - resign DNSSEC-secured zone"
 if [ "$1" == "" ]; then
 	echo "$USAGE"
 	return 1
@@ -125,6 +132,39 @@ elif [ "$1" == "-s" ]; then
 	After this has been done, please remember to edit the zone definition in your bind config to change the zone file to '/etc/namedb/master/$ZONE.signed'" && echo
 	read -p "Press enter to open the zone for editing, or Ctrl-C to exit and add these later."
 	wdns $ZONE
+	return 0
+elif [ "$1" == "-rs" ]; then
+	if [ "$2" == "" ]; then
+		echo "$USAGE"
+		return 1
+	fi
+	if [ ! -f /etc/namedb/master/$2 ]; then
+		echo "Error: Zonefile for $2 does not exist. Use -n to create a new zone!"
+		return 1
+	fi
+	ZONE=$2
+	DNSSEC_DIR="/etc/namedb/dnssec"
+	if [ ! -f /etc/namedb/master/$ZONE.signed ]; then
+		echo "Zone $ZONE doesn't appear to be DNSSEC-enabled! Use -s to sign an unsigned zone!"
+		return 1
+	fi
+	if [ ! -f $DNSSEC_DIR/K$ZONE.KSK.key -o ! -f $DNSSEC_DIR/K$ZONE.ZSK.key ]; then
+		echo "Signing keys for $ZONE don't exist! Use -s to sign an unsigned zone!"
+		return 1
+	fi
+	DNSSEC_OUT="$(dnssec-signzone -o $ZONE -d /etc/namedb/dnssec -K /etc/namedb/dnssec -k /etc/namedb/dnssec/K$ZONE.KSK.key /etc/namedb/master/$ZONE /etc/namedb/dnssec/K$ZONE.ZSK.key 2>&1)"
+	if [ $? -ne 0 ]; then
+		echo "DNSSEC signing failed! Error: $DNSSEC_OUT"
+		return 1
+	fi
+	echo "Zone $ZONE resigned."
+	#Reload zones
+	echo "Reloading named"
+	/etc/rc.d/named reload
+	if [ $? -ne 0 ]; then
+		echo "Error while reloading named!"
+		return 1
+	fi
 	return 0
 else
 	#Check if we want to edit the master zones config
