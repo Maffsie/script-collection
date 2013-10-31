@@ -293,6 +293,8 @@ case $MODE in
 		echo "rDNS record removed!"
 		DO_SYNC=1
 		;;
+	NOOP)
+		;;
 	*)
 		echo "Clearly, you used this script incorrectly."
 		usage
