@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
 #rdns.sh - script for dealing with rDNS.
-#Report any bugs to matthew.connelly@simplexwebs.com
 
 #TODO
 #Add more _BIN variables to decrease reliance on $PATH
@@ -30,9 +29,12 @@ function usage () {
 $0 ip.address                  : Show current rDNS for the given IP address.
 $0 ip.address dns.address      : Set given IP address's rDNS to the given DNS address.
 $0 -v ip.address dns.address   : Set given IP's rDNS, and verify it after syncing.
+$0 -nv ip.address dns.address  : Set given IP's rDNS without checking forward DNS first.
 $0 -r ip.address               : Reset given IP's rDNS to the default ($DEFAULT_RDNS).
+$0 -rS ip.address              : Reset given IP's rDNS as -r does, but don't sync to DNS cluster.
 $0 -R ip.address               : Remove the given IP's rDNS entry altogether.
-$0 [-h]                        : Show this help text."
+$0 -S ip.address               : Sync the authoritative zone for the given IP address to the DNS cluster.
+$0 [-h|--help]                 : Show this help text."
 }
 
 function validateIP () {
@@ -92,7 +94,7 @@ function setRDNS () {
 		APPENDREC="$RECORD     14400   IN      PTR     $DEFAULT_RDNS"
 		#This is disabled for now. We warn, but do not touch.
 		echo "$APPENDREC" >> $ZONE_LOCATION$ZONEFILE$ZONE_FTAIL
-		echo "Warning: Record for $TARGET_IP, new record has been created."
+		echo "Warning: Record for $TARGET_IP did not exist, new record has been created."
 		CUR_REC=$(getRDNS $TARGET_IP)
 	fi
 	#I would use sed for this, but for some reason I can't get match groups to work in sed.
@@ -157,7 +159,7 @@ ZONE_FILE=""
 DO_SYNC=0
 
 #Get options and arguments. I do this old school because I'm too lazy to l2getopts
-if [ "$1" == "-h" -o "$1" == "-r" -o "$1" == "-v" -o "$1" == "-R" ]; then
+if [ "$1" == "-h" -o "$1" == "-r" -o "$1" == "-v" -o "$1" == "-R" -o "$1" == "-nv" -o "$1" == "-rS" -o "$1" == "-S" ]; then
 	GOPTS="$1"
 	IPADDR="$2"
 	DESTDNS="$3"
@@ -191,10 +193,17 @@ case $GOPTS in
 	-r)
 		MODE="RESET"
 		;;
-	-v)	MODE="SETANDVALIDATE"
+	-rS)
+		MODE="RESETNOSYNC"
 		;;
 	-R)
 		MODE="REMOVE"
+		;;
+	-S)
+		MODE="NOOP"
+		DO_SYNC="1"
+		;;
+	-v)	MODE="SETANDVALIDATE"
 		;;
 	*)
 		if [ ! -z "$DESTDNS" ]; then
@@ -204,7 +213,9 @@ case $GOPTS in
 		fi
 		;;
 esac
-
+if [ "$MODE" == "SET" -a "$GOPTS" == "-nv" ]; then
+	MODE="SETNOVERIFY"
+fi
 #We do the work.
 case $MODE in
 	RESET)
@@ -215,6 +226,14 @@ case $MODE in
 		fi
 		echo "rDNS set!"
 		DO_SYNC=1
+		;;
+	RESETNOSYNC)
+		setRDNS $IPADDR $DEFAULT_RDNS
+		if [ $? -ne 0 ]; then
+			echo "Failed to set rDNS!"
+			exit 1
+		fi
+		echo "rDNS set!"
 		;;
 	GET)
 		RDNS=$(getRDNS $IPADDR)
@@ -229,6 +248,19 @@ case $MODE in
 		if [ $? -ne 0 ]; then
 			echo "Forward DNS does not match requested reverse!"
 			exit 1
+		fi
+		setRDNS $IPADDR $DESTDNS
+		if [ $? -ne 0 ]; then
+			echo "Failed to set rDNS!"
+			exit 1
+		fi
+		echo "rDNS set!"
+		DO_SYNC=1
+		;;
+	SETNOVERIFY)
+		checkForwardDNS $DESTDNS $IPADDR
+		if [ $? -ne 0 ]; then
+			echo "Warning: Forward DNS does not match requested reverse! Continuing anyway.."
 		fi
 		setRDNS $IPADDR $DESTDNS
 		if [ $? -ne 0 ]; then
