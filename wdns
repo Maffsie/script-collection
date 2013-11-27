@@ -1,14 +1,8 @@
-#!/usr/bin/env bash
-
-#wdns - BIND9 management script written in bash.
-#Licensed under the BSD 3-clause license.
-
-#TODO: Make the creation and management of reverse zones easier. IPv4 AND IPv6
-#TODO: Make the 'zones' file easier to manage. Automate creation, editing and removal of entries.
-#TODO: Add automated DNSSEC setup to the zones file
-#TODO: Complete rewrite to make everything more functional
-
+#!/usr/local/bin/bash
+#wdns - Script to edit specific zones or the master zones conf file
 #Generate random string of characters. This is to ensure we're not directly editing things
+#TODO: Make the creation and management of reverse zones easier.
+#TODO: Make the 'zones' file easier to manage. Automate creation, editing and removal of entries.
 RAND=$(cat /dev/urandom|tr -cd "[:alnum:]"|head -c 8)
 FILETOEDIT=""
 ORIGDIR="/etc/namedb/"
@@ -152,7 +146,24 @@ elif [ "$1" == "-rs" ]; then
 		echo "Signing keys for $ZONE don't exist! Use -s to sign an unsigned zone!"
 		exit 1
 	fi
-	DNSSEC_OUT="$(dnssec-signzone -o $ZONE -d /etc/namedb/dnssec -K /etc/namedb/dnssec -k /etc/namedb/dnssec/K$ZONE.KSK.key /etc/namedb/master/$ZONE /etc/namedb/dnssec/K$ZONE.ZSK.key 2>&1)"
+	#sorry
+	ORIGDIR="/etc/namedb/master/"
+	SOA="$(cat "$ORIGDIR$ZONE"|grep "; Serial"|sed -E 's/;.*//g;s/[[:space:]]*//g')"
+	SOA_VERSION="$(echo $SOA|tail -c2)"
+	SOA_DATE="$(echo $SOA|head -c8)"
+	SOA_NEW_DATE="$(date "+%Y%m%d")"
+	if [[ "$SOA_DATE" == "$SOA_NEW_DATE" ]]; then
+		SOA_VERSION="$(echo "$SOA_VERSION+1"|bc)"
+		if [ "$(echo "$(echo "$SOA_VERSION"|wc -c|tr -cd '[:alnum:]')-1"|bc)" == "1" ]; then
+			SOA_VERSION="0$SOA_VERSION"
+		fi
+	else
+		SOA_VERSION="00"
+		SOA_DATE="$SOA_NEW_DATE"
+	fi
+	cat "$ORIGDIR$ZONE"|sed "s/$SOA/$SOA_DATE$SOA_VERSION/">/tmp/soatmp$ZONE
+	mv /tmp/soatmp$ZONE $ORIGDIR$ZONE
+	DNSSEC_OUT="$(dnssec-signzone -o $ZONE -e +31536000 -d /etc/namedb/dnssec -K /etc/namedb/dnssec -k /etc/namedb/dnssec/K$ZONE.KSK.key /etc/namedb/master/$ZONE /etc/namedb/dnssec/K$ZONE.ZSK.key 2>&1)"
 	if [ $? -ne 0 ]; then
 		echo "DNSSEC signing failed! Error: $DNSSEC_OUT"
 		exit 1
@@ -227,7 +238,7 @@ for (( ; ; )); do
 		#DNSSEC
 		if [ -f /etc/namedb/dnssec/K$1.KSK.key ]; then
 			echo "Signing zone"
-			DNSSEC_OUT="$(dnssec-signzone -o $1 -d /etc/namedb/dnssec -K /etc/namedb/dnssec -k /etc/namedb/dnssec/K$1.KSK.key /etc/namedb/master/$1 /etc/namedb/dnssec/K$1.ZSK.key 2>&1)"
+			DNSSEC_OUT="$(dnssec-signzone -o $1 -e +31536000 -d /etc/namedb/dnssec -K /etc/namedb/dnssec -k /etc/namedb/dnssec/K$1.KSK.key /etc/namedb/master/$1 /etc/namedb/dnssec/K$1.ZSK.key 2>&1)"
 			if [ $? -ne 0 ]; then
 				echo "Failed to sign zone!\n$DNSSEC_OUT"
 			fi
