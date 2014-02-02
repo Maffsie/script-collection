@@ -2,6 +2,7 @@
 #aslookup.pl - Looks up information on a given ASN or IP address
 use strict;
 use warnings;
+use diagnostics;
 
 use Net::IRR;
 
@@ -11,6 +12,15 @@ our $db = Net::IRR->connect(host=>$as_server) or die "Error: Cannot connect to w
 
 sub do_as_lookup {
 	my $asn = shift;
+	if($asn =~ / /) {
+		my @asns = split / /, $asn;
+		my $ret = "";
+		foreach(@asns) {
+			$ret .= do_as_lookup("$_").", ";
+		}
+		$ret =~ s/, $//g;
+		return $ret;
+	}
 	my @results = $db->match("aut-num",$asn) or return "$asn - unknown AS";
 	@results = split /\n/,$results[0];
 	my $asname = "";
@@ -19,7 +29,7 @@ sub do_as_lookup {
 		$asname = $1 if /as-name:\s+(.+)$/;
 		$asdesc = $1 if /descr:\s+(.+)$/;
 	}
-	return "$asname - $asdesc";
+	return "$asn $asname - $asdesc";
 }
 sub do_subnet_lookup {
 	my $sub = shift;
@@ -30,7 +40,7 @@ sub do_subnet_lookup {
 	my $descr = "";
 	my $route = "";
 	foreach(@res) {
-		$route = $1 if /route:\s+(.+)$/;
+		$route = $1 if /route6?:\s+(.+)$/;
 		$result .= $1." " if /origin:\s+(AS[0-9]+)$/;
 		$descr .= $1." : " if /descr:\s+(.+)$/;
 	}
@@ -49,6 +59,6 @@ if($target =~ /^AS/) {
 my ($s,$a,$d) = split /€/, do_subnet_lookup $target;
 print "$s, $d";
 print " (contains $target)" unless $target eq $s;
-print " is announced by $a ".do_as_lookup $a;
+print " is announced by ".do_as_lookup $a;
 print "\n";
 $db->disconnect;
