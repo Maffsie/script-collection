@@ -1,0 +1,54 @@
+#!/usr/bin/env perl
+#aslookup.pl - Looks up information on a given ASN or IP address
+use strict;
+use warnings;
+
+use Net::IRR;
+
+my $default_as_server = "whois.radb.net";
+my $as_server = $default_as_server;
+our $db = Net::IRR->connect(host=>$as_server) or die "Error: Cannot connect to whois server $as_server:43";
+
+sub do_as_lookup {
+	my $asn = shift;
+	my @results = $db->match("aut-num",$asn) or return "$asn - unknown AS";
+	@results = split /\n/,$results[0];
+	my $asname = "";
+	my $asdesc = "";
+	foreach(@results) {
+		$asname = $1 if /as-name:\s+(.+)$/;
+		$asdesc = $1 if /descr:\s+(.+)$/;
+	}
+	return "$asname - $asdesc";
+}
+sub do_subnet_lookup {
+	my $sub = shift;
+	my $result;
+	$result = $db->route_search($sub,Net::IRR::ONE_LEVEL) or die "Error: Couldn't seem to get a result for $sub.";
+	my @res = split /\n/, $result;
+	$result = "";
+	my $descr = "";
+	my $route = "";
+	foreach(@res) {
+		$route = $1 if /route:\s+(.+)$/;
+		$result .= $1." " if /origin:\s+(AS[0-9]+)$/;
+		$descr .= $1." : " if /descr:\s+(.+)$/;
+	}
+	$result =~ s/ +$//g;
+	$descr =~ s/ : $//g;
+	$sub = $route unless $db->route_search($sub,Net::IRR::EXACT_MATCH);
+	return "$sub€$result€$descr";
+}
+
+my $target = shift || die "Please provide an ASnum or IP/subnet to look up\n";
+
+if($target =~ /^AS/) {
+	print "$target is ".do_as_lookup $target;print "\n";
+	exit
+}
+my ($s,$a,$d) = split /€/, do_subnet_lookup $target;
+print "$s, $d";
+print " (contains $target)" unless $target eq $s;
+print " is announced by $a ".do_as_lookup $a;
+print "\n";
+$db->disconnect;
