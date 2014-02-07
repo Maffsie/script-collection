@@ -1,0 +1,10 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+# License: 3-Clause BSD. Author: Matthew Connelly.
+# This is a (formerly Bash, now Perl) script for managing in-addr.arpa and ip6.arpa zones.
+# If you have any questions or issues, open an issue at https://bitbucket.org/MaffC/script-collection/issues or email me at matthew.connelly@simplexwebs.com
+
+
