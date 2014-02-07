@@ -1,10 +1,75 @@
 #!/usr/bin/env perl
-
-use strict;
-use warnings;
-
 # License: 3-Clause BSD. Author: Matthew Connelly.
 # This is a (formerly Bash, now Perl) script for managing in-addr.arpa and ip6.arpa zones.
 # If you have any questions or issues, open an issue at https://bitbucket.org/MaffC/script-collection/issues or email me at matthew.connelly@simplexwebs.com
 
+use strict;
+use warnings;
 
+use Data::Validate::Domain qw(is_domain);							#for validating domains
+use Data::Validate::IP qw(is_public_ipv4 is_public_ipv6);			#for validating v4/v6 addresses
+use Getopt::Long qw(:config posix_default bundling pass_through);	#for intelligently handling cli arguments
+use Net::IP;														#for converting IPs to their reverse zones
+use Data::Dumper;
+
+#conf
+my $def_rdns = 'hosted-by.mycompany.com';
+my $def_dns = '8.8.8.8';
+
+#variables for arguments
+our $verify = '';
+our $force = '';
+our $reset = '';
+our $nosync = '';
+our $fsync = '';
+our $delptr = '';
+our $prefixlen = 64;
+
+#functions
+#validation, data rejigging and output
+sub validate_domain {
+	my $domain = shift;
+	return 1 if is_domain $domain;
+	return 0;
+}
+sub is_ip {
+	#returns 0 on invalid IP, 1 on v4, 2 on v6.
+	my $ip = shift;
+	return 2 if is_public_ipv6 $ip;
+	return 1 if is_public_ipv4 $ip;
+	return 0;
+}
+sub get_arpa {
+	my $ip = shift;
+	if(is_public_ipv4 $ip) {
+		$ip =~ m/^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)$/;
+		return ($4, "$3.$2.$1.in-addr.arpa");
+	}
+	#IP is v6, use Net::IP->new->reverse_ip assuming subnet prefix /64 unless specified
+	my $len = ($prefixlen-1);
+	Net::IP->new($ip)->reverse_ip =~ /^(.*){\Q$len}\.(.*)$/;
+	return ($1,$2);
+}
+sub nicedie {
+	print shift;
+	exit 1;
+}
+
+#main
+GetOptions(
+	'v|verify-rdns'		=>	\$verify,
+	'dns-server=s'		=>	\$def_dns,
+	'f|force'			=>	\$force,
+	'r|reset'			=>	\$reset,
+	'default=s'			=>	\$def_rdns,
+	'd|no-sync'			=>	\$nosync,
+	's|force-sync'		=>	\$fsync,
+	'R|remove-ptr'		=>	\$delptr
+);
+
+my $ip = shift or nicedie "No IP given!";
+my $domain = shift or nicedie "No FQDN given!" unless $fsync || $reset || $delptr;
+$prefixlen = $1 if $ip =~ s/\/([0-9]+)//;
+
+my ($rec,$zone) = get_arpa $ip;
+print "IP = $ip, optional prefixlen $prefixlen. arpa zone = $zone, record = $rec\n";
