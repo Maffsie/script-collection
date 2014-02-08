@@ -11,6 +11,7 @@ package DNS::Reverse::Manager;
 use Data::Validate::Domain qw(is_domain);                            #for validating domains
 use Data::Validate::IP qw(is_public_ipv4 is_public_ipv6);            #for validating v4/v6 addresses
 use Getopt::Long qw(:config posix_default bundling pass_through);    #for intelligently handling cli arguments
+use Net::DNS;                                                        #for doing forward and reverse lookups
 use Net::IP;                                                         #for converting IPs to their reverse zones
 use Data::Dumper;
 
@@ -25,20 +26,22 @@ our $reset = '';
 our $nosync = '';
 our $fsync = '';
 our $delptr = '';
+our $newzone = '';
 our $prefixlen = 64;
 
 #functions
-#validation, data rejigging and output
+sub nicedie {
+	print shift."\n";
+	exit 1;
+}
 sub validate_domain {
 	my $domain = shift;
 	return 1 if is_domain $domain;
 	return 0;
 }
 sub is_ip {
-	#returns 0 on invalid IP, 1 on v4, 2 on v6.
 	my $ip = shift;
-	return 2 if is_public_ipv6 $ip;
-	return 1 if is_public_ipv4 $ip;
+	return 1 if is_public_ipv4 $ip || is_public_ipv6 $ip;
 	return 0;
 }
 sub get_arpa {
@@ -51,19 +54,56 @@ sub get_arpa {
 	Net::IP->new($ip)->reverse_ip =~ /^(.*)\.(.{$len}ip6\.arpa)\.$/;
 	return ($1,$2);
 }
-sub nicedie {
-	print shift."\n";
-	exit 1;
+#TODO make these work for DNS roundrobins. I doubt anyone would be stupid enough to have more than one PTR of the same name
+# and i'm not sure if it's even legal, but hey.
+sub does_fqdn_match {
+	my ($fqdn,$ip) = @_;
+	my $r = Net::DNS::Resolver->new(recurse => 1);
+	my $p = $r->search($fqdn, 'A');
+	$p = $r->search($fqdn, 'AAAA') unless is_public_ipv4 $ip;
+	return 0 unless defined $p;
+	my @res = $p->answer;
+	return 1 unless scalar @res < 1 || $res[0]->address ne $ip;
+	return 0;
+}
+sub confirm_rdns {
+	my ($fqdn,$ip) = @_;
+	my ($rec,$zone) = get_arpa $ip;
+	my $rrec = $rec.".".$zone;
+	my $r = Net::DNS::Resolver->new(recurse => 1,tcp_timeout => 5,udp_timeout => 5);
+	my $p = $r->search($rrec, 'PTR');
+	return 0 unless defined $p;
+	my @res = $p->answer;
+	return 1 unless scalar @res < 1 || $res[0]->ptrdname."." ne $fqdn;
+	return 0;
+}
+sub get_rdns {
+	my $ip = shift;
+	return "";
+}
+sub set_rdns {
+	my $ip = shift;
+	my $fqdn = shift;
+	my ($record,$zone) = get_arpa $ip;
+	return 1;
+}
+sub generate_zone {
+	my ($rec,$zone) = get_arpa shift;
+	return 1;
+}
+sub sync_cpanel {
+	return 1;
 }
 
 #main
-#do argument parsing, all unknown arguments get left in @ARGV so I can `shift`.
+#do argument parsing. all unknown arguments get left in @ARGV so I can `shift`.
 GetOptions
-	'v|verify-rdns'		=>	\$verify,
+	'reset-hostname=s'	=>	\$def_rdns,
 	'dns-server=s'		=>	\$def_dns,
+	'v|verify-rdns'		=>	\$verify,
 	'f|force'			=>	\$force,
 	'r|reset'			=>	\$reset,
-	'default=s'			=>	\$def_rdns,
+	'p|populate'		=>	\$newzone,
 	'd|no-sync'			=>	\$nosync,
 	's|force-sync'		=>	\$fsync,
 	'R|remove-ptr'		=>	\$delptr;
@@ -74,3 +114,8 @@ $prefixlen = $1 if $ip =~ s/\/([0-9]+)//; #split off prefixlen (if given) into v
 nicedie "Invalid IP address '$ip'!" unless is_ip $ip;
 my $domain = shift or nicedie "No FQDN given!" unless $fsync || $reset || $delptr; #conditionally allow the user to not specify a fqdn
 nicedie "Invalid FQDN '$domain'!" if defined $domain && !validate_domain $domain;
+$domain =~ s/([a-zA-Z])$/$1./; #Append final period if it doesn't exist
+#main flow
+
+print "Does $domain match $ip? ".does_fqdn_match $domain, $ip;
+print "\nDoes $ip reverse to $domain? ".confirm_rdns $domain, $ip;
