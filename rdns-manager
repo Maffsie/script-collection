@@ -45,9 +45,8 @@ sub get_arpa {
 		$ip =~ m/^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)$/;
 		return ($4, "$3.$2.$1.in-addr.arpa");
 	}
-	#IP is v6, use Net::IP->new->reverse_ip assuming subnet prefix /64 unless specified
-	my $len = ($prefixlen-1);
-	Net::IP->new($ip)->reverse_ip =~ /^(.*){\Q$len}\.(.*)$/;
+	my $len = ($prefixlen/2);
+	Net::IP->new($ip)->reverse_ip =~ /^(.*)\.(.{$len}ip6\.arpa)\.$/;
 	return ($1,$2);
 }
 sub nicedie {
@@ -70,6 +69,3 @@ GetOptions(
 my $ip = shift or nicedie "No IP given!";
 my $domain = shift or nicedie "No FQDN given!" unless $fsync || $reset || $delptr;
 $prefixlen = $1 if $ip =~ s/\/([0-9]+)//;
-
-my ($rec,$zone) = get_arpa $ip;
-print "IP = $ip, optional prefixlen $prefixlen. arpa zone = $zone, record = $rec\n";
