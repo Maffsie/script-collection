@@ -41,7 +41,7 @@ sub validate_domain {
 }
 sub validate_ip {
 	my $ip = shift;
-	return 1 if is_public_ipv4($ip) || is_public_ipv6($ip);
+	return 1 if is_public_ipv4 $ip or is_public_ipv6 $ip;
 	return 0;
 }
 sub get_arpa {
@@ -64,7 +64,7 @@ sub does_fqdn_match {
 	return 0 unless defined $p;
 	my @res = $p->answer;
 	#due to IPv6 shortening, we need to use Net::IP here
-	return 1 unless scalar @res < 1 || Net::IP->new($res[0]->address)->ip ne Net::IP->new($ip)->ip;
+	return 1 unless scalar @res < 1 or Net::IP->new($res[0]->address)->ip ne Net::IP->new($ip)->ip;
 	return 0;
 }
 sub confirm_rdns {
@@ -75,7 +75,7 @@ sub confirm_rdns {
 	my $p = $r->search($rrec, 'PTR');
 	return 0 unless defined $p;
 	my @res = $p->answer;
-	return 1 unless scalar @res < 1 || $res[0]->ptrdname."." ne $fqdn;
+	return 1 unless scalar @res < 1 or $res[0]->ptrdname."." ne $fqdn;
 	return 0;
 }
 sub get_rdns {
@@ -113,8 +113,8 @@ GetOptions
 my $ip = shift or nicedie "No IP given!";
 $prefixlen = $1 if $ip =~ s/\/([0-9]+)//; #split off prefixlen (if given) into variable for later use
 nicedie "Invalid IP address '$ip'!" unless validate_ip $ip;
-my $domain = shift or nicedie "No FQDN given!" unless $fsync || $reset || $delptr; #conditionally allow the user to not specify a fqdn
-nicedie "Invalid FQDN '$domain'!" if defined $domain && !validate_domain $domain;
+my $domain = shift or nicedie "No FQDN given!" unless $fsync or $reset or $delptr; #conditionally allow the user to not specify a fqdn
+nicedie "Invalid FQDN '$domain'!" if defined $domain and !validate_domain $domain;
 $domain =~ s/([a-zA-Z])$/$1./; #Append final period if it doesn't exist
 
 #main flow
