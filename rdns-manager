@@ -6,6 +6,8 @@
 use strict;
 use warnings;
 
+package DNS::Reverse::Manager;
+
 use Data::Validate::Domain qw(is_domain);							#for validating domains
 use Data::Validate::IP qw(is_public_ipv4 is_public_ipv6);			#for validating v4/v6 addresses
 use Getopt::Long qw(:config posix_default bundling pass_through);	#for intelligently handling cli arguments
@@ -50,12 +52,13 @@ sub get_arpa {
 	return ($1,$2);
 }
 sub nicedie {
-	print shift;
+	print shift."\n";
 	exit 1;
 }
 
 #main
-GetOptions(
+#do argument parsing, all unknown arguments get left in @ARGV so I can `shift`.
+GetOptions
 	'v|verify-rdns'		=>	\$verify,
 	'dns-server=s'		=>	\$def_dns,
 	'f|force'			=>	\$force,
@@ -63,9 +66,11 @@ GetOptions(
 	'default=s'			=>	\$def_rdns,
 	'd|no-sync'			=>	\$nosync,
 	's|force-sync'		=>	\$fsync,
-	'R|remove-ptr'		=>	\$delptr
-);
+	'R|remove-ptr'		=>	\$delptr;
 
+#get IP and domain, validate.
 my $ip = shift or nicedie "No IP given!";
-my $domain = shift or nicedie "No FQDN given!" unless $fsync || $reset || $delptr;
-$prefixlen = $1 if $ip =~ s/\/([0-9]+)//;
+$prefixlen = $1 if $ip =~ s/\/([0-9]+)//; #split off prefixlen (if given) into variable for later use
+nicedie "Invalid IP address '$ip'!" unless is_ip $ip;
+my $domain = shift or nicedie "No FQDN given!" unless $fsync || $reset || $delptr; #conditionally allow the user to not specify a fqdn
+nicedie "Invalid FQDN '$domain'!" if defined $domain && !validate_domain $domain;
