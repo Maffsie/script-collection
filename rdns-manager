@@ -125,8 +125,10 @@ sub generate_soa_serial {
 }
 sub write_zone {
 	my $zone = shift;
+	my @z = @_;
+	foreach(@z) {$_->serial(generate_soa_serial $_->serial) if $_->type eq "SOA";} #update SOA
 	open ZONE, ">$zone_dir$zone$zone_ext" or nicedie "Failed to open zonefile for $zone for writing!";
-	print ZONE Net::DNS::ZoneParse::writezone @_;
+	print ZONE Net::DNS::ZoneParse::writezone @z;
 	close ZONE or nicedie "Seemingly failed to close $zone$zone_ext, cowardly quitting here.";
 }
 sub del_ptr {
@@ -137,6 +139,7 @@ sub del_ptr {
 		return 1 unless $rr->name eq $rec;
 		return 0;
 	}
+	$made_modifications = 1;
 	write_zone $rec,grep {&is_match(($_,$rec))} @_;
 }
 sub add_ptr {
@@ -145,6 +148,7 @@ sub add_ptr {
 	my @z = get_zone_array $ip;
 	my $new_rr = Net::DNS::RR->new("$rec.$zone. 3600 IN PTR $fqdn");
 	push @z,$new_rr;
+	$made_modifications = 1;
 	write_zone $zone,@z;
 }
 sub get_ptr {
@@ -160,10 +164,10 @@ sub get_ptr {
 }
 sub set_ptr {
 	my ($ip,$fqdn) = @_;
+	return add_ptr $ip,$fqdn unless does_record_exist $ip;
 	my ($record,$zone) = get_arpa $ip;
 	my @z = get_zone_array $ip;
 	foreach(@z) {
-		$_->serial(generate_soa_serial $_->serial) if $_->type eq "SOA";
 		$_->ptrdname($fqdn) if $_->name eq "$record.$zone";
 	}
 	$made_modifications = 1;
@@ -176,10 +180,14 @@ sub sync_cpanel {
 sub do_sync {
 	my $ip = shift;
 	my ($rec,$zone) = get_arpa $ip;
+	my $res = '';
+	print "Syncing zone $zone... ";
 	for($net_type) {
-		sync_cpanel $zone when /cpanel/;
+		$res = sync_cpanel $zone when /cpanel/;
 		default { nicedie "Couldn't sync $zone: Don't have a known sync method for network type $net_type."; }
 	}
+	print (($res) ? "Synchronised" : "Failed");
+	print "!\n";
 }
 
 #main
@@ -204,15 +212,38 @@ nicedie "Invalid FQDN '$domain'!" if defined $domain and !validate_domain $domai
 $domain =~ s/([a-zA-Z])$/$1./ if defined $domain; #Append final period if it doesn't exist
 
 #Main program flow
+#Argument intelligence. Omitting this probably won't impact program flow much but it's important that the user know they're stupid.
 nicedie "You seem to have specified both --no-sync and --force-sync. Please make your mind up." if $nosync and $fsync;
+nicedie "You seem to have specified some combination of --reset, --remote-ptr and --force. Please make your mind up." if ($reset and $delptr) or (($reset or $delptr) and $force);
+nicedie "You seem to have specified arguments that don't make sense together. Please make your mind up." if ($newzone and ($delptr or $reset or $force)) or ($verify and !defined $domain) or (defined $domain and ($newzone or $delptr or $reset));
+
+#Simple check that the zone exists.
 for(does_zone_exist $ip) {
 	my ($trec,$tz) = get_arpa $ip;
 	nicedie "Authoritative zone for IP $ip doesn't exist! Please create zone $tz or ensure you specified the correct subnet mask if this is an IPv6 address!" when -2;
 	nicedie "Zonefile $tz (supposedly authoritative for $ip) doesn't appear to be a valid BIND zone. Please check the zonefile and try again." when -1;
 	nicedie "Authoritative zone for IP $ip exists but we can't write to it. Please check the permissions on the zonefile for $tz." when 0;
 }
-#if(!defined $domain and $reset) {
-#	set_ptr $ip,$def_rdns or nicedie "Failed to set rDNS for $ip to '$def_rdns'!";
-#}
-#do_sync $ip if (($made_modifications and !$nosync) or $fsync);
-add_ptr $ip, $domain;
+
+if(!defined $domain and $reset) {
+	set_ptr $ip,$def_rdns or nicedie "Failed to set rDNS for $ip to '$def_rdns'!";
+	print "rDNS set";
+	print ((confirm_rdns $ip, $def_rdns) ? " and resolving" : " but not yet resolving (check manually with 'host $ip')") if $verify;
+	print ".\n";
+} elsif(!defined $domain and $delptr) {
+	del_ptr $ip or nicedie "Failed to delete PTR record for $ip!";
+	nicedie "PTR record for IP $ip deleted.";
+} elsif(!defined $domain and $newzone) {
+	nicedie "Sorry, but the zone population functionality isn't yet written.";
+} elsif(!defined $domain) {
+	nicedie "No rDNS record for IP $ip exists." unless does_record_exist $ip;
+	nicedie "rDNS for IP $ip: ".get_ptr $ip;
+}
+if(defined $domain) {
+	nicedie "Forward DNS for $domain doesn't match $ip!" unless does_fqdn_match $ip or $force;
+	set_ptr $ip,$domain or nicedie "Failed to set rDNS for $ip to '$domain'!";
+	print "rDNS set";
+	print ((confirm_rdns $ip, $def_rdns) ? " and resolving" : " but not yet resolving (check manually with 'host $ip')") if $verify;
+	print ".\n";
+}
+do_sync $ip if (($made_modifications and !$nosync) or $fsync);
