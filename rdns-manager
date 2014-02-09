@@ -7,7 +7,7 @@ use strict;
 use warnings;
 
 package DNS::Reverse::Manager;
-use feature qw(switch);
+use feature qw(switch say);
 use vars '$VERSION'; $VERSION = '1.0.0';                             #Version number
 
 use Data::Validate::Domain qw(is_domain);                            #for validating domains
@@ -15,7 +15,7 @@ use Data::Validate::IP qw(is_public_ipv4 is_public_ipv6);            #for valida
 use Getopt::Long qw(:config posix_default bundling pass_through);    #for intelligently handling cli arguments
 use Net::DNS;                                                        #for doing forward and reverse lookups
 use Net::DNS::ZoneFile;                                              #for working with BIND zones
-use Net::DNS::ZoneParse;                                             #for converting an array of RRs to a zone file
+#use Net::DNS::ZoneParse;                                             #for converting an array of RRs to a zone file
 use Net::IP;                                                         #for converting IPs to their reverse zones
 use POSIX qw(strftime);                                              #for SOA serial generation
 use Data::Dumper; #debugging
@@ -124,11 +124,14 @@ sub generate_soa_serial {
 	return $yyyymmdd."00";
 }
 sub write_zone {
+	use File::Copy qw(copy);
+	use Net::DNS::ZoneParse qw(writezone);
 	my $zone = shift;
 	my @z = @_;
 	foreach(@z) {$_->serial(generate_soa_serial $_->serial) if $_->type eq "SOA";} #update SOA
+	copy "$zone_dir$zone$zone_ext", "$zone_dir$zone$zone_ext.bak" or print "Warning: Couldn't create a backup of the zone $zone.\n";
 	open ZONE, ">$zone_dir$zone$zone_ext" or nicedie "Failed to open zonefile for $zone for writing!";
-	print ZONE Net::DNS::ZoneParse::writezone @z;
+	print ZONE writezone @z;
 	close ZONE or nicedie "Seemingly failed to close $zone$zone_ext, cowardly quitting here.";
 }
 sub del_ptr {
@@ -186,8 +189,7 @@ sub do_sync {
 		$res = sync_cpanel $zone when /cpanel/;
 		default { nicedie "Couldn't sync $zone: Don't have a known sync method for network type $net_type."; }
 	}
-	print (($res) ? "Synchronised" : "Failed");
-	print "!\n";
+	say (($res) ? "Synchronised" : "Failed");
 }
 
 #main
@@ -229,15 +231,15 @@ if(!defined $domain and $reset) {
 	set_ptr $ip,$def_rdns or nicedie "Failed to set rDNS for $ip to '$def_rdns'!";
 	print "rDNS set";
 	print ((confirm_rdns $ip, $def_rdns) ? " and resolving" : " but not yet resolving (check manually with 'host $ip')") if $verify;
-	print ".\n";
+	print "\n";
 } elsif(!defined $domain and $delptr) {
 	del_ptr $ip or nicedie "Failed to delete PTR record for $ip!";
-	nicedie "PTR record for IP $ip deleted.";
+	say "PTR record for IP $ip deleted.";exit;
 } elsif(!defined $domain and $newzone) {
 	nicedie "Sorry, but the zone population functionality isn't yet written.";
 } elsif(!defined $domain) {
-	nicedie "No rDNS record for IP $ip exists." unless does_record_exist $ip;
-	nicedie "rDNS for IP $ip: ".get_ptr $ip;
+	say "No rDNS record for IP $ip exists." and exit unless does_record_exist $ip;
+	say "rDNS for IP $ip: ".get_ptr $ip;exit;
 }
 if(defined $domain) {
 	nicedie "Forward DNS for $domain doesn't match $ip!" unless does_fqdn_match $ip or $force;
