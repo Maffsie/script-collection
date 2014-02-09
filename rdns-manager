@@ -7,6 +7,7 @@ use strict;
 use warnings;
 
 package DNS::Reverse::Manager;
+use feature qw(switch);
 use vars '$VERSION'; $VERSION = '1.0.0';                             #Version number
 
 use Data::Validate::Domain qw(is_domain);                            #for validating domains
@@ -22,6 +23,7 @@ my $def_rdns = 'hosted-by.mycompany.com';       #Recomend default is "hosted-by.
 my $def_dns = '8.8.8.8';                        #Recommended default is 8.8.8.8 or 4.2.2.1.
 my $zone_dir = '/var/named/';                   #for cPanel, use /var/named/.
 my $zone_ext = ".db";                           #Default for most environments is ".db".
+my $net_type = "cpanel";                        #This was originally written to support cPanel-based DNS environments, and primarily impacts how rdns-manager "syncs".
 
 #variables for arguments
 my $verify = '';
@@ -103,7 +105,7 @@ sub does_record_exist {
 	my $ip = shift;
 	my ($rec,$zone) = get_arpa $ip;
 	my @z = get_zone_array $ip;
-	return 0 unless defined @z;
+	return 0 unless @z;
 	foreach(@z) {
 		return 1 if $_->name eq "$rec.$zone";
 	}
@@ -115,7 +117,7 @@ sub get_rdns {
 	my ($rec,$zone) = get_arpa $ip;
 	my @z = get_zone_array $ip;
 	foreach(@z) {
-		print Dumper $_ if $_->name eq "$rec.$zone";
+		return $_->ptrdname if $_->name eq "$rec.$zone";
 	}
 	return "";
 }
@@ -149,12 +151,27 @@ GetOptions
 my $ip = shift or nicedie "No IP given!";
 $prefixlen = $1 if $ip =~ s/\/([0-9]+)//; #split off prefixlen (if given) into variable for later use
 nicedie "Invalid IP address '$ip'!" unless validate_ip $ip;
-my $domain = shift or nicedie "No FQDN given!" unless $fsync or $reset or $delptr; #conditionally allow the user to not specify a fqdn
+my $domain = shift;
 nicedie "Invalid FQDN '$domain'!" if defined $domain and !validate_domain $domain;
-$domain =~ s/([a-zA-Z])$/$1./; #Append final period if it doesn't exist
+$domain =~ s/([a-zA-Z])$/$1./ if defined $domain; #Append final period if it doesn't exist
 
-#main flow
+my $testing = 1;
 
-does_fqdn_match($domain,$ip)?print "fqdn $domain matches $ip" : print "fqdn $domain doesn't match $ip";print "\n";
-confirm_rdns($domain,$ip)?print "rdns for $ip matches $domain" : print "rdns for $ip doesn't match $domain";print "\n";
-nicedie "result from does_record_exist is: ".does_record_exist $ip;
+#testing data
+if($testing) {
+	print "Testing data. IP: $ip";
+	(defined $domain) ? print ", Domain: $domain" : print ".";
+	print "\n";
+	my ($testrec,$testz) = get_arpa $ip;
+	print "Authoritative zone (for IPv6, based off prefixlen $prefixlen): $testz, record: $testrec\n";
+	print "Zone ";
+	for(does_zone_exist $ip) {
+		print "doesn't exist" when -2;
+		print "exists, but isn't a zone" when -1;
+		print "exists, but isn't writeable" when 0;
+		default {print "exists and is writeable";}
+	}
+	print "\nRecord $testrec ";
+	(does_record_exist $ip) ? print "exists, and points to ".get_rdns $ip : print "doesn't exist.";
+	print "\n";
+}
