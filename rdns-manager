@@ -14,7 +14,6 @@ use Data::Validate::IP qw(is_public_ipv4 is_public_ipv6);            #for valida
 use Getopt::Long qw(:config posix_default bundling pass_through);    #for intelligently handling cli arguments
 use Net::DNS;                                                        #for doing forward and reverse lookups
 use Net::IP;                                                         #for converting IPs to their reverse zones
-use Data::Dumper; #debugging
 
 #conf
 my $def_rdns = 'hosted-by.mycompany.com';       #Recomend default is "hosted-by.your-website.tld".
@@ -178,7 +177,10 @@ sub set_ptr {
 	return 1;
 }
 sub sync_cpanel {
-	return 1;
+	my $zone = shift;
+	my $syncscript = "/scripts/dnscluster synczone";
+	`$syncscript $zone`;
+	return $?;
 }
 sub do_sync {
 	my $ip = shift;
