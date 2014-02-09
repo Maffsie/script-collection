@@ -15,7 +15,9 @@ use Data::Validate::IP qw(is_public_ipv4 is_public_ipv6);            #for valida
 use Getopt::Long qw(:config posix_default bundling pass_through);    #for intelligently handling cli arguments
 use Net::DNS;                                                        #for doing forward and reverse lookups
 use Net::DNS::ZoneFile;                                              #for working with BIND zones
+use Net::DNS::ZoneParse;                                             #for converting an array of RRs to a zone file
 use Net::IP;                                                         #for converting IPs to their reverse zones
+use POSIX qw(strftime);                                              #for SOA serial generation
 use Data::Dumper; #debugging
 
 #conf
@@ -34,6 +36,9 @@ my $fsync = '';
 my $delptr = '';
 my $newzone = '';
 my $prefixlen = 64;
+
+#other vars
+my $made_modifications = '';
 
 #functions
 sub nicedie {
@@ -106,32 +111,57 @@ sub does_record_exist {
 	my ($rec,$zone) = get_arpa $ip;
 	my @z = get_zone_array $ip;
 	return 0 unless @z;
+	#I imagine this might be grossly inefficient on large zones (such as fully-populated IPv6 zones).
 	foreach(@z) {
 		return 1 if $_->name eq "$rec.$zone";
 	}
 	return 0;
+}
+sub generate_soa_serial {
+	my $cur_serial = shift;
+	my $yyyymmdd = strftime "%Y%m%d", localtime;
+	return $cur_serial+1 if $cur_serial =~ /^$yyyymmdd[0-9]{2}$/;
+	return $yyyymmdd."00";
+}
+sub write_zone {
+	my $zone = shift;
+	open ZONE, ">$zone_dir$zone$zone_ext" or nicedie "Failed to open zonefile for $zone for writing!";
+	print ZONE Net::DNS::ZoneParse::writezone @_;
+	close ZONE or nicedie "Seemingly failed to close $zone$zone_ext, cowardly quitting here.";
 }
 sub get_rdns {
 	my $ip = shift;
 	return unless does_record_exist $ip;
 	my ($rec,$zone) = get_arpa $ip;
 	my @z = get_zone_array $ip;
+	#More inefficient to repeat the same operation twice even.
 	foreach(@z) {
 		return $_->ptrdname if $_->name eq "$rec.$zone";
 	}
-	return "";
+	return;
 }
 sub set_rdns {
 	my ($ip,$fqdn) = @_;
 	my ($record,$zone) = get_arpa $ip;
-	return 1;
-}
-sub generate_zone {
-	my ($rec,$zone) = get_arpa shift;
+	my @z = get_zone_array $ip;
+	foreach(@z) {
+		$_->serial(generate_soa_serial $_->serial) if $_->type eq "SOA";
+		$_->ptrdname($fqdn) if $_->name eq "$record.$zone";
+	}
+	$made_modifications = 1;
+	write_zone $zone,@z;
 	return 1;
 }
 sub sync_cpanel {
 	return 1;
+}
+sub do_sync {
+	my $ip = shift;
+	my ($rec,$zone) = get_arpa $ip;
+	for($net_type) {
+		sync_cpanel $zone when /cpanel/;
+		default { nicedie "Couldn't sync $zone: Don't have a known sync method for network type $net_type."; }
+	}
 }
 
 #main
@@ -155,23 +185,16 @@ my $domain = shift;
 nicedie "Invalid FQDN '$domain'!" if defined $domain and !validate_domain $domain;
 $domain =~ s/([a-zA-Z])$/$1./ if defined $domain; #Append final period if it doesn't exist
 
-my $testing = 1;
-
-#testing data
-if($testing) {
-	print "Testing data. IP: $ip";
-	(defined $domain) ? print ", Domain: $domain" : print ".";
-	print "\n";
-	my ($testrec,$testz) = get_arpa $ip;
-	print "Authoritative zone (for IPv6, based off prefixlen $prefixlen): $testz, record: $testrec\n";
-	print "Zone ";
-	for(does_zone_exist $ip) {
-		print "doesn't exist" when -2;
-		print "exists, but isn't a zone" when -1;
-		print "exists, but isn't writeable" when 0;
-		default {print "exists and is writeable";}
-	}
-	print "\nRecord $testrec ";
-	(does_record_exist $ip) ? print "exists, and points to ".get_rdns $ip : print "doesn't exist.";
-	print "\n";
+#Main program flow
+nicedie "You seem to have specified both --no-sync and --force-sync. Please make your mind up." if $nosync and $fsync;
+for(does_zone_exist $ip) {
+	my ($trec,$tz) = get_arpa $ip;
+	nicedie "Authoritative zone for IP $ip doesn't exist! Please create zone $tz or ensure you specified the correct subnet mask if this is an IPv6 address!" when -2;
+	nicedie "Zonefile $tz (supposedly authoritative for $ip) doesn't appear to be a valid BIND zone. Please check the zonefile and try again." when -1;
+	nicedie "Authoritative zone for IP $ip exists but we can't write to it. Please check the permissions on the zonefile for $tz." when 0;
 }
+#if(!defined $domain and $reset) {
+#	set_rdns $ip,$def_rdns or nicedie "Failed to set rDNS for $ip to '$def_rdns'!";
+#}
+#do_sync $ip if (($made_modifications and !$nosync) or $fsync);
+set_rdns $ip,$domain;
