@@ -7,27 +7,31 @@ use strict;
 use warnings;
 
 package DNS::Reverse::Manager;
+use vars '$VERSION'; $VERSION = '1.0.0';                             #Version number
 
 use Data::Validate::Domain qw(is_domain);                            #for validating domains
 use Data::Validate::IP qw(is_public_ipv4 is_public_ipv6);            #for validating v4/v6 addresses
 use Getopt::Long qw(:config posix_default bundling pass_through);    #for intelligently handling cli arguments
 use Net::DNS;                                                        #for doing forward and reverse lookups
+use Net::DNS::ZoneFile;                                              #for working with BIND zones
 use Net::IP;                                                         #for converting IPs to their reverse zones
-use Data::Dumper;
+use Data::Dumper; #debugging
 
 #conf
-my $def_rdns = 'hosted-by.mycompany.com';
-my $def_dns = '8.8.8.8';
+my $def_rdns = 'hosted-by.mycompany.com';       #Recomend default is "hosted-by.your-website.tld".
+my $def_dns = '8.8.8.8';                        #Recommended default is 8.8.8.8 or 4.2.2.1.
+my $zone_dir = '/var/named/';                   #for cPanel, use /var/named/.
+my $zone_ext = ".db";                           #Default for most environments is ".db".
 
 #variables for arguments
-our $verify = '';
-our $force = '';
-our $reset = '';
-our $nosync = '';
-our $fsync = '';
-our $delptr = '';
-our $newzone = '';
-our $prefixlen = 64;
+my $verify = '';
+my $force = '';
+my $reset = '';
+my $nosync = '';
+my $fsync = '';
+my $delptr = '';
+my $newzone = '';
+my $prefixlen = 64;
 
 #functions
 sub nicedie {
@@ -58,7 +62,7 @@ sub get_arpa {
 # and i'm not sure if it's even legal, but hey.
 sub does_fqdn_match {
 	my ($fqdn,$ip) = @_;
-	my $r = Net::DNS::Resolver->new(recurse => 1);
+	my $r = Net::DNS::Resolver->new(recurse => 1,tcp_timepit => 5,udp_timeout => 5,nameservers => [$def_dns,]);
 	my $p = $r->search($fqdn, 'A');
 	$p = $r->search($fqdn, 'AAAA') unless is_public_ipv4 $ip;
 	return 0 unless defined $p;
@@ -71,20 +75,52 @@ sub confirm_rdns {
 	my ($fqdn,$ip) = @_;
 	my ($rec,$zone) = get_arpa $ip;
 	my $rrec = $rec.".".$zone;
-	my $r = Net::DNS::Resolver->new(recurse => 1,tcp_timeout => 5,udp_timeout => 5);
+	my $r = Net::DNS::Resolver->new(recurse => 1,tcp_timeout => 5,udp_timeout => 5,nameservers => [$def_dns,]);
 	my $p = $r->search($rrec, 'PTR');
 	return 0 unless defined $p;
 	my @res = $p->answer;
 	return 1 unless scalar @res < 1 or $res[0]->ptrdname."." ne $fqdn;
 	return 0;
 }
+sub does_zone_exist {
+	my $ip = shift;
+	my ($rec,$zone) = get_arpa $ip;
+	return -2 if !-e "$zone_dir/$zone$zone_ext";
+	return -1 if -z "$zone_dir/$zone$zone_ext";
+	return 0 if !-w "$zone_dir/$zone$zone_ext";
+	return 1;
+}
+sub get_zone_array {
+	#returns 1 on record exists, 0 on record doesn't exist, -1 on zone exists but isn't writeable, -2 on file exists but isn't a zone, -3 on file doesn't exist
+	my $ip = shift;
+	my ($rec,$zone) = get_arpa $ip;
+	return unless does_zone_exist $ip;
+	my $zf = new Net::DNS::ZoneFile("$zone_dir/$zone$zone_ext");
+	my @z = $zf->read;
+	return @z;
+}
+sub does_record_exist {
+	my $ip = shift;
+	my ($rec,$zone) = get_arpa $ip;
+	my @z = get_zone_array $ip;
+	return 0 unless defined @z;
+	foreach(@z) {
+		return 1 if $_->name eq "$rec.$zone";
+	}
+	return 0;
+}
 sub get_rdns {
 	my $ip = shift;
+	return unless does_record_exist $ip;
+	my ($rec,$zone) = get_arpa $ip;
+	my @z = get_zone_array $ip;
+	foreach(@z) {
+		print Dumper $_ if $_->name eq "$rec.$zone";
+	}
 	return "";
 }
 sub set_rdns {
-	my $ip = shift;
-	my $fqdn = shift;
+	my ($ip,$fqdn) = @_;
 	my ($record,$zone) = get_arpa $ip;
 	return 1;
 }
@@ -119,3 +155,6 @@ $domain =~ s/([a-zA-Z])$/$1./; #Append final period if it doesn't exist
 
 #main flow
 
+does_fqdn_match($domain,$ip)?print "fqdn $domain matches $ip" : print "fqdn $domain doesn't match $ip";print "\n";
+confirm_rdns($domain,$ip)?print "rdns for $ip matches $domain" : print "rdns for $ip doesn't match $domain";print "\n";
+nicedie "result from does_record_exist is: ".does_record_exist $ip;
