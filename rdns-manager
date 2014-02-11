@@ -243,5 +243,10 @@ if(defined $domain) {
 	print "rDNS set.\n";
 }
 do_sync $ip if (($made_modifications and !$nosync) or $fsync);
-my $domain = $def_rdns if $reset;
-print ((confirm_rdns $domain, $ip) ? "rDNS for IP $ip was successfully set to $domain." : "rDNS for IP $ip not yet resolving to $domain (check later with: host $ip)") if $verify;
+#very ugly, needs rewritten
+if(defined $domain) {
+	print ((confirm_rdns $domain, $ip) ? "rDNS for IP $ip was successfully set to $domain." : "rDNS for IP $ip not yet resolving to $domain (check later with: host $ip)") if $verify;
+} else {
+	print ((confirm_rdns $def_rdns, $ip) ? "rDNS for IP $ip was successfully set to $def_rdns." : "rDNS for IP $ip not yet resolving to $def_rdns (check later with: host $ip)") if $verify;
+}
+print "\n";
