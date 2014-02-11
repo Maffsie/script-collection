@@ -7,7 +7,6 @@ use strict;
 use warnings;
 
 package DNS::Reverse::Manager;
-use feature qw(switch say);
 use vars '$VERSION'; $VERSION = '1.0.0';                             #Version number
 
 use Data::Validate::IP qw(is_public_ipv4 is_public_ipv6);            #for validating v4/v6 addresses
@@ -187,11 +186,9 @@ sub do_sync {
 	my ($rec,$zone) = get_arpa $ip;
 	my $res = '';
 	print "Syncing zone $zone... ";
-	for($net_type) {
-		$res = sync_cpanel $zone when /cpanel/;
-		default { nicedie "Couldn't sync $zone: Don't have a known sync method for network type $net_type."; }
-	}
-	say (($res) ? "Synchronised" : "Failed");
+	nicedie "Couldn't sync $zone: Don't have a known sync method for network type $net_type." unless $net_type eq "cpanel";
+	$res = sync_cpanel $zone if $net_type eq "cpanel";
+	print (($res) ? "Synchronised\n" : "Failed\n");
 }
 
 #main
@@ -221,13 +218,11 @@ nicedie "You seem to have specified both --no-sync and --force-sync. Please make
 nicedie "You seem to have specified some combination of --reset, --remove-ptr and --force. Please make your mind up." if ($reset and $delptr) or (($reset or $delptr) and $force);
 nicedie "You seem to have specified arguments that don't make sense together. Please make your mind up." if ($newzone and ($delptr or $reset or $force)) or ($verify and !defined $domain) or (defined $domain and ($newzone or $delptr or $reset));
 
-#Simple check that the zone exists.
-for(does_zone_exist $ip) {
-	my ($trec,$tz) = get_arpa $ip;
-	nicedie "Authoritative zone for IP $ip doesn't exist! Please create zone $tz or ensure you specified the correct subnet mask if this is an IPv6 address!" when -2;
-	nicedie "Zonefile $tz (supposedly authoritative for $ip) doesn't appear to be a valid BIND zone. Please check the zonefile and try again." when -1;
-	nicedie "Authoritative zone for IP $ip exists but we can't write to it. Please check the permissions on the zonefile for $tz." when 0;
-}
+#Simple check that the zone exists. This was a for/when statement, but this script needs perl 5.8.8 compat, so for/given and when are out.
+my ($trec,$tz) = get_arpa $ip;
+nicedie "Authoritative zone for IP $ip doesn't exist! Please create zone $tz or ensure you specified the correct subnet mask if this is an IPv6 address!" if does_zone_exist($ip) == -2;
+nicedie "Zonefile $tz (supposedly authoritative for $ip) doesn't appear to be a valid BIND zone. Please check the zonefile and try again." if does_zone_exist($ip) == -1;
+nicedie "Authoritative zone for IP $ip exists but we can't write to it. Please check the permissions on the zonefile for $tz." if !does_zone_exist($ip);
 
 if(!defined $domain and $reset) {
 	set_ptr $ip,$def_rdns or nicedie "Failed to set rDNS for $ip to '$def_rdns'!";
@@ -236,12 +231,12 @@ if(!defined $domain and $reset) {
 	print "\n";
 } elsif(!defined $domain and $delptr) {
 	del_ptr $ip or nicedie "Failed to delete PTR record for $ip!";
-	say "PTR record for IP $ip deleted.";exit;
+	print "PTR record for IP $ip deleted.\n";exit;
 } elsif(!defined $domain and $newzone) {
 	nicedie "Sorry, but the zone population functionality isn't yet written.";
 } elsif(!defined $domain) {
-	say "No rDNS record for IP $ip exists." and exit unless does_record_exist $ip;
-	say "rDNS for IP $ip: ".get_ptr $ip;exit;
+	print "No rDNS record for IP $ip exists.\n" and exit unless does_record_exist $ip;
+	print "rDNS for IP $ip: ".get_ptr $ip;print "\n";exit;
 }
 if(defined $domain) {
 	nicedie "Forward DNS for $domain doesn't match $ip!" unless does_fqdn_match $ip or $force;
