@@ -189,7 +189,7 @@ sub do_sync {
 	print "Syncing zone $zone... ";
 	nicedie "Couldn't sync $zone: Don't have a known sync method for network type $net_type." unless $net_type eq "cpanel";
 	$res = sync_cpanel $zone if $net_type eq "cpanel";
-	print (($res) ? "Synchronised\n" : "Failed\n");
+	print (($res == 0) ? "Synchronised\n" : "Failed\n");
 }
 
 #main
