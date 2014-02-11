@@ -240,7 +240,7 @@ if(!defined $domain and $reset) {
 	print "rDNS for IP $ip: ".get_ptr $ip;print "\n";exit;
 }
 if(defined $domain) {
-	nicedie "Forward DNS for $domain doesn't match $ip!" unless does_fqdn_match $ip or $force;
+	nicedie "Forward DNS for $domain doesn't match $ip!" unless $force or does_fqdn_match $domain, $ip;
 	set_ptr $ip,$domain or nicedie "Failed to set rDNS for $ip to '$domain'!";
 	print "rDNS set";
 	print ((confirm_rdns $ip, $def_rdns) ? " and resolving" : " but not yet resolving (check manually with 'host $ip')") if $verify;
