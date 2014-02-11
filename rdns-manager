@@ -100,7 +100,7 @@ sub get_zone_array {
 	my $ip = shift;
 	my ($rec,$zone) = get_arpa $ip;
 	return unless does_zone_exist $ip;
-	my $zf = new Net::DNS::ZoneFile("$zone_dir/$zone$zone_ext");
+	my $zf = new Net::DNS::ZoneFile("$zone_dir/$zone$zone_ext", $zone);
 	my @z = $zf->read;
 	return @z;
 }
