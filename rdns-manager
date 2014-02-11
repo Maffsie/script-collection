@@ -37,7 +37,8 @@ my $made_modifications = '';
 
 #functions
 sub nicedie {
-	print shift."\n";
+	print;
+	print "\n";
 	exit 1;
 }
 sub validate_domain {
