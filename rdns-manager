@@ -95,7 +95,7 @@ sub does_zone_exist {
 	return 1;
 }
 sub get_zone_array {
-	use Net::DNS::ZoneFile;
+	require Net::DNS::ZoneFile;
 	#returns 1 on record exists, 0 on record doesn't exist, -1 on zone exists but isn't writeable, -2 on file exists but isn't a zone, -3 on file doesn't exist
 	my $ip = shift;
 	my ($rec,$zone) = get_arpa $ip;
@@ -123,8 +123,8 @@ sub generate_soa_serial {
 	return $yyyymmdd."00";
 }
 sub write_zone {
-	use File::Copy qw(copy);
-	use Net::DNS::ZoneParse qw(writezone);
+	require File::Copy qw(copy);
+	require Net::DNS::ZoneParse qw(writezone);
 	my $zone = shift;
 	my @z = @_;
 	foreach(@z) {$_->serial(generate_soa_serial $_->serial) if $_->type eq "SOA";} #update SOA
@@ -134,15 +134,9 @@ sub write_zone {
 	close ZONE or nicedie "Seemingly failed to close $zone$zone_ext, cowardly quitting here.";
 }
 sub del_ptr {
-	#I'm so sorry
 	my $rec = shift;
-	sub is_match {
-		my ($rr,$rec) = @_;
-		return 1 unless $rr->name eq $rec;
-		return 0;
-	}
 	$made_modifications = 1;
-	write_zone $rec,grep {&is_match(($_,$rec))} @_;
+	write_zone $rec,grep {!($_->name eq $rec)} @_;
 }
 sub add_ptr {
 	my ($ip,$fqdn) = @_;
