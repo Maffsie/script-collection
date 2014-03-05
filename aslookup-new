@@ -27,7 +27,8 @@ sub do_as_lookup {
 	my $asdesc = "";
 	foreach(@results) {
 		$asname = $1 if /as-name:\s+(.+)$/;
-		$asdesc = $1 if /descr:\s+(.+)$/;
+		$asdesc .= ", " if length $asdesc > 0 and /^descr/;
+		$asdesc .= $1 if /descr:\s+(.+)$/;
 	}
 	return "$asn $asname - $asdesc";
 }
@@ -50,8 +51,7 @@ sub do_subnet_lookup {
 	return "$sub€$result€$descr";
 }
 
-my $target = shift || die "Please provide an ASnum or IP/subnet to look up\n";
-
+my $target = uc shift || die "Please provide an ASnum or IP/subnet to look up\n";
 if($target =~ /^AS/) {
 	print "$target is ".do_as_lookup $target;print "\n";
 	exit
