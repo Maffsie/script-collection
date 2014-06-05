@@ -37,7 +37,7 @@ my $made_modifications = '';
 
 #functions
 sub nicedie {
-	print;
+	print @_;
 	print "\n";
 	exit 1;
 }
