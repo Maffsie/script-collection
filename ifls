@@ -1,0 +1,28 @@
+#!/usr/bin/env perl
+use strict;
+use feature "say";
+use Regexp::Common;
+use Term::ANSIColor qw/:constants/;
+
+my $lp=0; #stores last printed thing, for tracking of script state
+my $locals=""; #stores all local addresses to be printed after all non-locals have been printed
+open IFCFG, 'ifconfig|'; #opens a handle for the output of ifconfig
+while(<IFCFG>) {
+	my $if=$1 if /^([a-z0-9\.]+(:[0-9]+)?)/;
+	say RED." no addrs".RESET if defined $if and !length $locals and $lp==1;
+	#backspace a character and create a newline in the rare event that an interface has routed IPs but no link-locals or anything
+	print STDOUT "\b\033[K" and say "" if defined $if and $lp==2 and !length $locals;
+	$locals =~ s/,$// and say $locals and $locals="" if length $locals and defined $if;
+	print BLUE,"$if:",RESET and $lp=1 if defined $if;
+	my $ip=$1 if /($RE{net}{IPv4}|$RE{net}{IPv6})/;
+	#colourise the IP blue, mark it local and pop it into the locals pile if it's a link-local, multicast or zeroconf IP
+	$locals.=BLUE." $ip <L>".RESET."," and undef $ip if $ip =~ /^(::|fcce|fe80|0\.|127\.|169\.254|22[0-9]\.|2[3-4][0-9]\.|25[0-5]\.)/;
+	#colourise the IP yellow and mark it if it's a temporary v6 or NAT v4 address
+	$ip=YELLOW."$ip <T>".RESET if /$RE{net}{IPv6}.*temporary/;
+	$ip=YELLOW."$ip <N>".RESET if $ip =~ /^(10\.|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)/;
+	print " " if defined $ip and $lp;
+	print GREEN,$ip,RESET,"," and $lp=2 if defined $ip;
+}
+print RED," no addrs",RESET if $lp==1 and !length $locals;
+$locals =~ s/,$// and print BLUE,$locals,RESET if length $locals;
+say "";
