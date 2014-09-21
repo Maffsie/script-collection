@@ -1,0 +1,160 @@
+#!/usr/bin/env perl
+## Perl script for screenshot management
+
+package Maff::Utils::PScrot;
+
+use strict;
+use warnings;
+
+# github:MaffC/maffpl.git provides the Maff:: namespace
+use Maff::Common::IO qw/:all/;
+use Maff::Common::OSX qw/:all/;
+use Maff::Common::Net qw/scp_upload/;
+
+use Date::Format qw/time2str/;
+use POE;
+use POE::Component::DirWatch;
+use POSIX;
+
+my $ME = "pscrot";
+my $VERSION = "0.3";
+my $HOSTNAME = `hostname`; chomp $HOSTNAME;
+
+# Configuration
+my $homedir = $ENV{"HOME"};
+my $tmpdir = "$homedir/.tmp/";
+my $outbox_path = "$homedir/outbox/";
+
+my $dropbox_path = "$homedir/Dropbox/Camera Uploads/";
+my $desktop_path = "$homedir/Desktop/";
+
+my %regexp = (
+	screenshot => qr/(?:^|\/)Screen Shot ([0-9\-]+) at ([0-9\.]+)\.png$/,
+	screencast => qr/wowsoscreencastmanygayplaceholders/,
+);
+my %server = (
+	address => "your.server.address",
+	path => "/path/to/your/www/files",
+	domain => "your.domain",
+);
+my %sshopts = (
+	user => getpwuid($<),
+	key_path => "$homedir/.ssh/id_rsa",
+	port => 22,
+);
+
+my $filename_generic = "%Y-%m-%d %H.%M.%S";
+
+my $LOGFILE = "$homedir/.$ME.log";
+my $PIDFILE = "$homedir/.$ME.pid";
+
+my $retries = 0; # set to -1 to disable upload retrying
+my $running = 0;
+
+# Functions
+sub mac_notify {
+	macintalk_say text=>$_[($_[0] eq $ME)? 1 : 0];
+	nc_notify @_;
+}
+sub sigtrap {
+	my $sig = shift;
+	logger(2, "Caught SIG$sig: Exiting..");
+	$running = 0;
+}
+sub sighup {
+	logger(2, "Caught SIGHUP: Restarting..");
+	$running = -1;
+}
+sub logger {
+	my $pri = shift;
+	my $msg = shift;
+	print time2str('%e %B %T', time)." $HOSTNAME $ME\[$$] ($pri): $msg\n";
+	mac_notify($ME,$msg) if $pri == 3;
+	exit 0 if $pri == 8;
+	exit 1 if $pri == 9;
+	return $pri;
+}
+sub push_file {
+	my $file = shift;
+	while(1) {
+		last if scp_upload(file=>$file,host=>$server{address},port=>$sshopts{port},user=>$sshopts{user},key=>$sshopts{key_path},remote_path=>$server{path}) or $retries++ =~ /^(-1|2)$/;
+		if($retries==1) {
+			logger(1, "Failed to upload $file (try $retries)");
+			logger(3, $Maff::Common::Net::error);
+			sleep 3; # wait a few seconds before retrying
+		} else {
+			logger(2, "max retry limit reached, bailing.");
+			mac_notify("Upload Failed", "Connect retry limit reached; check the log for details.");
+		}
+	}
+	$file = $file->basename; $file =~ s/ /%20/g;
+	my $uri = "http://$server{domain}/$file";
+	clipb_copy $uri;
+	mac_notify("File Uploaded", "$uri copied to clipboard.");
+}
+sub normalise_filename {
+	my ($name,$dropped) = @_;
+	return time2str($filename_generic,time).$1 if $dropped and ($name =~ /(\.[a-z0-9]+)$/i or 1);
+	$name =~ $regexp{screenshot} and return "$1 $2.png";
+	return $name;
+}
+sub check_file {
+	my $file = shift;
+	return 1 if $file->is_dir;
+	return 0 if $file->basename =~ /^\./;
+	return 1 if $file =~ /^\Q$outbox_path\E/;
+	foreach my $handled_type (keys %regexp) {
+		return 1 if $file =~ $regexp{$handled_type};
+	}
+	return 0;
+}
+sub found_file {
+	my $file = shift;
+	my $dropped = ($file =~ /^\Q$outbox_path\E/) ? 1 : 0;
+	my $nf = normalise_filename($file->basename, $dropped);
+	$file->move_to($tmpdir.$nf);
+	$retries=0 unless $retries==-1;
+	mac_notify("Uploading File", "Uploading $nf...");
+	push_file $file;
+	$dropped? $file->remove() : $file->move_to($dropbox_path.$nf);
+}
+
+# Main
+POE::Kernel->run();
+open(STDOUT, ">>$LOGFILE");
+open(STDERR, ">>$LOGFILE");
+select((select(STDOUT), $|=1)[0]);
+#TODO check $PIDFILE for previously started process, SIGHUP it to restart and then quit
+logger(1,"Starting $ME..");
+write_simple $PIDFILE, $$ or logger(9, "Failed to write PID to file $PIDFILE");
+
+$running = 1;
+
+$SIG{HUP} = \&sighup;
+$SIG{INT} = \&sigtrap;
+$SIG{QUIT} = \&sigtrap;
+$SIG{TERM} = \&sigtrap;
+
+POE::Session->create(
+	inline_states => {
+		_start => sub {
+			$_[HEAP]->{screengrabs} = POE::Component::DirWatch->new(
+				alias			=> 'screengrabs',
+				directory		=> $desktop_path,
+				filter			=> \&check_file,
+				file_callback	=> \&found_file,
+				interval		=> 1,
+			);
+			$_[HEAP]->{dropbox} = POE::Component::DirWatch->new(
+				alias			=> 'dropbox',
+				directory		=> $outbox_path,
+				filter			=> \&check_file,
+				file_callback	=> \&found_file,
+				interval		=> 2, # decreased polling speed for the dropbox
+			);
+	}}
+);
+logger(1, "$ME version $VERSION started.");
+POE::Kernel->run_while(\$running);
+logger(8,"Halting $ME..") unless $running==-1;
+exec $^X, $0, @ARGV;
