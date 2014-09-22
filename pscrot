@@ -17,7 +17,7 @@ use POE::Component::DirWatch;
 use POSIX;
 
 my $ME = "pscrot";
-my $VERSION = "0.3";
+my $VERSION = "0.4.1";
 my $HOSTNAME = `hostname`; chomp $HOSTNAME;
 
 # Configuration
@@ -25,8 +25,8 @@ my $homedir = $ENV{"HOME"};
 my $tmpdir = "$homedir/.tmp/";
 my $outbox_path = "$homedir/outbox/";
 
-my $dropbox_path = "$homedir/Dropbox/Camera Uploads/";
 my $desktop_path = "$homedir/Desktop/";
+my $dropbox_path = "$homedir/Dropbox/Camera Uploads/";
 
 my %regexp = (
 	screenshot => qr/(?:^|\/)Screen Shot ([0-9\-]+) at ([0-9\.]+)\.png$/,
@@ -34,11 +34,11 @@ my %regexp = (
 );
 my %server = (
 	address => "your.server.address",
-	path => "/path/to/your/www/files",
+	path => "/path/to/your/www",
 	domain => "your.domain",
 );
 my %sshopts = (
-	user => getpwuid($<),
+	user => scalar getpwuid($<),
 	key_path => "$homedir/.ssh/id_rsa",
 	port => 22,
 );
@@ -46,10 +46,12 @@ my %sshopts = (
 my $filename_generic = "%Y-%m-%d %H.%M.%S";
 
 my $LOGFILE = "$homedir/.$ME.log";
+my $ERRFILE = "$homedir/.$ME.err";
 my $PIDFILE = "$homedir/.$ME.pid";
 
 my $retries = 0; # set to -1 to disable upload retrying
 my $running = 0;
+my $sighup = 0;
 
 # Functions
 sub mac_notify {
@@ -63,12 +65,14 @@ sub sigtrap {
 }
 sub sighup {
 	logger(2, "Caught SIGHUP: Restarting..");
-	$running = -1;
+	$running = 0;
+	$sighup = 1;
 }
 sub logger {
 	my $pri = shift;
 	my $msg = shift;
 	print time2str('%e %B %T', time)." $HOSTNAME $ME\[$$] ($pri): $msg\n";
+	print STDERR time2str('%e %B %T', time)." $HOSTNAME $ME\[$$] ($pri): $msg\n" if $pri =~ /^[29]$/;
 	mac_notify($ME,$msg) if $pri == 3;
 	exit 0 if $pri == 8;
 	exit 1 if $pri == 9;
@@ -122,7 +126,7 @@ sub found_file {
 # Main
 POE::Kernel->run();
 open(STDOUT, ">>$LOGFILE");
-open(STDERR, ">>$LOGFILE");
+open(STDERR, ">>$ERRFILE");
 select((select(STDOUT), $|=1)[0]);
 #TODO check $PIDFILE for previously started process, SIGHUP it to restart and then quit
 logger(1,"Starting $ME..");
@@ -156,5 +160,5 @@ POE::Session->create(
 );
 logger(1, "$ME version $VERSION started.");
 POE::Kernel->run_while(\$running);
-logger(8,"Halting $ME..") unless $running==-1;
+logger($sighup? 1 : 8,"Halting $ME..");
 exec $^X, $0, @ARGV;
