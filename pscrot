@@ -17,37 +17,20 @@ use POE::Component::DirWatch;
 use POSIX;
 
 my $ME = "pscrot";
-my $VERSION = "0.4.1";
+my $VERSION = "0.4.2";
 my $HOSTNAME = `hostname`; chomp $HOSTNAME;
+my $rcfile = $ENV{"HOME"}."/.pscrotrc";
+our %Conf;
 
-# Configuration
-my $homedir = $ENV{"HOME"};
-my $tmpdir = "$homedir/.tmp/";
-my $outbox_path = "$homedir/outbox/";
+# Load config file at ~/.pscrotrc.
+unless(my $ret = do $rcfile) {
+	logger(9, "Couldn't parse config file $rcfile!") if $@;
+	logger(9, "Couldn't load config file $rcfile!") unless defined $ret and $ret;
+}
 
-my $desktop_path = "$homedir/Desktop/";
-my $dropbox_path = "$homedir/Dropbox/Camera Uploads/";
-
-my %regexp = (
-	screenshot => qr/(?:^|\/)Screen Shot ([0-9\-]+) at ([0-9\.]+)\.png$/,
-	screencast => qr/wowsoscreencastmanygayplaceholders/,
-);
-my %server = (
-	address => "your.server.address",
-	path => "/path/to/your/www",
-	domain => "your.domain",
-);
-my %sshopts = (
-	user => scalar getpwuid($<),
-	key_path => "$homedir/.ssh/id_rsa",
-	port => 22,
-);
-
-my $filename_generic = "%Y-%m-%d %H.%M.%S";
-
-my $LOGFILE = "$homedir/.$ME.log";
-my $ERRFILE = "$homedir/.$ME.err";
-my $PIDFILE = "$homedir/.$ME.pid";
+my $LOGFILE = "$Conf{home}/.$ME.log";
+my $ERRFILE = "$Conf{home}/.$ME.err";
+my $PIDFILE = "$Conf{home}/.$ME.pid";
 
 my $retries = 0; # set to -1 to disable upload retrying
 my $running = 0;
@@ -55,7 +38,8 @@ my $sighup = 0;
 
 # Functions
 sub mac_notify {
-	macintalk_say text=>$_[($_[0] eq $ME)? 1 : 0];
+	return unless $Conf{features}{notify};
+	macintalk_say text=>$_[($_[0] eq $ME)? 1 : 0] if $Conf{features}{speak};
 	nc_notify @_;
 }
 sub sigtrap {
@@ -81,7 +65,7 @@ sub logger {
 sub push_file {
 	my $file = shift;
 	while(1) {
-		last if scp_upload(file=>$file,host=>$server{address},port=>$sshopts{port},user=>$sshopts{user},key=>$sshopts{key_path},remote_path=>$server{path}) or $retries++ =~ /^(-1|2)$/;
+		last if scp_upload(file=>$file,%{$Conf{server}}) or $retries++ =~ /^(-1|2)$/;
 		if($retries==1) {
 			logger(1, "Failed to upload $file (try $retries)");
 			logger(3, $Maff::Common::Net::error);
@@ -92,35 +76,36 @@ sub push_file {
 		}
 	}
 	$file = $file->basename; $file =~ s/ /%20/g;
-	my $uri = "http://$server{domain}/$file";
+	my $uri = "http://$Conf{server}{domain}/$file";
 	clipb_copy $uri;
 	mac_notify("File Uploaded", "$uri copied to clipboard.");
 }
 sub normalise_filename {
 	my ($name,$dropped) = @_;
-	return time2str($filename_generic,time).$1 if $dropped and ($name =~ /(\.[a-z0-9]+)$/i or 1);
-	$name =~ $regexp{screenshot} and return "$1 $2.png";
+	return time2str($Conf{filenametpl},time).$1 if $dropped and ($name =~ /(\.[a-z0-9]+)$/i or 1);
+	$name =~ $Conf{match}{screenshot} and return "$1 $2.png";
 	return $name;
 }
 sub check_file {
 	my $file = shift;
 	return 1 if $file->is_dir;
 	return 0 if $file->basename =~ /^\./;
-	return 1 if $file =~ /^\Q$outbox_path\E/;
-	foreach my $handled_type (keys %regexp) {
-		return 1 if $file =~ $regexp{$handled_type};
+	return 1 if $file =~ /^\Q$Conf{hotdir}\E/;
+	foreach my $handled_type (keys %{$Conf{match}}) {
+		return 1 if $file =~ $Conf{match}{$handled_type};
 	}
 	return 0;
 }
 sub found_file {
 	my $file = shift;
-	my $dropped = ($file =~ /^\Q$outbox_path\E/) ? 1 : 0;
+	my $dropped = ($file =~ /^\Q$Conf{hotdir}\E/) ? 1 : 0;
 	my $nf = normalise_filename($file->basename, $dropped);
-	$file->move_to($tmpdir.$nf);
+	$file->move_to($Conf{tmp}.$nf);
 	$retries=0 unless $retries==-1;
 	mac_notify("Uploading File", "Uploading $nf...");
 	push_file $file;
-	$dropped? $file->remove() : $file->move_to($dropbox_path.$nf);
+	$file->remove() if $Conf{features}{del} and $dropped;
+	$file->move_to($Conf{storedir}.$nf) unless $dropped;
 }
 
 # Main
@@ -144,18 +129,18 @@ POE::Session->create(
 		_start => sub {
 			$_[HEAP]->{screengrabs} = POE::Component::DirWatch->new(
 				alias			=> 'screengrabs',
-				directory		=> $desktop_path,
+				directory		=> $Conf{maindir},
 				filter			=> \&check_file,
 				file_callback	=> \&found_file,
 				interval		=> 1,
 			);
 			$_[HEAP]->{dropbox} = POE::Component::DirWatch->new(
 				alias			=> 'dropbox',
-				directory		=> $outbox_path,
+				directory		=> $Conf{hotdir},
 				filter			=> \&check_file,
 				file_callback	=> \&found_file,
 				interval		=> 2, # decreased polling speed for the dropbox
-			);
+			) if $Conf{features}{hotdir};
 	}}
 );
 logger(1, "$ME version $VERSION started.");
