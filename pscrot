@@ -17,7 +17,7 @@ use POE::Component::DirWatch;
 use POSIX;
 
 my $ME = "pscrot";
-my $VERSION = "0.4.2";
+my $VERSION = "0.5.1";
 my $HOSTNAME = `hostname`; chomp $HOSTNAME;
 my $rcfile = $ENV{"HOME"}."/.pscrotrc";
 our %Conf;
