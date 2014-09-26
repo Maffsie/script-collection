@@ -7,7 +7,6 @@ use strict;
 use warnings;
 
 # github:MaffC/maffpl.git provides the Maff:: namespace
-use Maff::Common::IO qw/:all/;
 use Maff::Common::OSX qw/:all/;
 use Maff::Common::Net qw/scp_upload/;
 
@@ -15,18 +14,16 @@ use Date::Format qw/time2str/;
 use POE;
 use POE::Component::DirWatch;
 use POSIX;
+use Unix::PID;
 
 my $ME = "pscrot";
-my $VERSION = "0.5.1";
+my $VERSION = "0.6.1";
 my $HOSTNAME = `hostname`; chomp $HOSTNAME;
-my $rcfile = $ENV{"HOME"}."/.pscrotrc";
-our %Conf;
 
 # Load config file at ~/.pscrotrc.
-unless(my $ret = do $rcfile) {
-	logger(9, "Couldn't parse config file $rcfile!") if $@;
-	logger(9, "Couldn't load config file $rcfile!") unless defined $ret and $ret;
-}
+my $rcfile = $ENV{"HOME"}."/.pscrotrc";
+our %Conf;
+load_config($rcfile);
 
 my $LOGFILE = "$Conf{home}/.$ME.log";
 my $ERRFILE = "$Conf{home}/.$ME.err";
@@ -37,6 +34,13 @@ my $running = 0;
 my $sighup = 0;
 
 # Functions
+sub load_config {
+	my $cfgfile = shift;
+	unless(my $ret = do $cfgfile) {
+		logger(9, "Couldn't parse config file $cfgfile!") if $@;
+		logger(9, "Couldn't load config file $cfgfile!") unless defined $ret and $ret;
+	}
+}
 sub mac_notify {
 	return unless $Conf{features}{notify};
 	macintalk_say text=>$_[($_[0] eq $ME)? 1 : 0] if $Conf{features}{speak};
@@ -110,12 +114,13 @@ sub found_file {
 
 # Main
 POE::Kernel->run();
+my $pid = Unix::PID->new()->is_pidfile_running($PIDFILE) || 0;
+kill 'HUP', $pid and logger(8, "$ME already running, restarting.") if $pid != $$ and $pid > 0;
+Unix::PID->new()->pid_file($PIDFILE) or logger(9, "Failed to write PID to $PIDFILE");
 open(STDOUT, ">>$LOGFILE");
 open(STDERR, ">>$ERRFILE");
 select((select(STDOUT), $|=1)[0]);
-#TODO check $PIDFILE for previously started process, SIGHUP it to restart and then quit
 logger(1,"Starting $ME..");
-write_simple $PIDFILE, $$ or logger(9, "Failed to write PID to file $PIDFILE");
 
 $running = 1;
 
