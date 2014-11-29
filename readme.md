@@ -20,5 +20,5 @@ This readme contains an up to date list of all scripts in the repo + their descr
 - ifls: Perl - Script to collect all interfaces on the system and provide an easily-viewed list of their IPs
 - mailview: Perl - Script to parse HTML email and format it in a text-reader-friendly way.
 - nscheck: Bash - DNS diagnosis script
-- pscrot & pscrot.rc: Perl - OSX-oriented but likely easily ported daemon for uploading screenshots and such. pscrot.rc is the configuration file, and should be stored at ~/.pscrotrc
+- queryresume-maff.pl: Perl - Irssi script to autoload chat history in query windows. Heavily modified from https://github.com/irssi/scripts.irssi.org/blob/gh-pages/scripts/queryresume.pl
 - watchd & watchd.conf: Bash - Script designed to run as a cronjob, alerting the user to any events.
