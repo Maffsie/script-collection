@@ -7,7 +7,7 @@ use strict;
 use warnings;
 
 package DNS::Reverse::Manager;
-use vars '$VERSION'; $VERSION = '1.0.0';                             #Version number
+use vars '$VERSION'; $VERSION = '1.1.0';                             #Version number
 
 use Data::Validate::IP qw(is_public_ipv4 is_public_ipv6);            #for validating v4/v6 addresses
 use Getopt::Long qw(:config posix_default bundling pass_through);    #for intelligently handling cli arguments
@@ -23,6 +23,7 @@ my $net_type = "cpanel";                        #This was originally written to 
 my $nsd_type = "bind9";                         #I might in the future support more than just bind9.
 
 #variables for arguments
+my $help = '';
 my $verify = '';
 my $force = '';
 my $reset = '';
@@ -41,10 +42,36 @@ sub nicedie {
 	print "\n";
 	exit 1;
 }
+sub print_help {
+	print
+"rdns-manager v$VERSION by Matthew Connelly, 2014-15
+Manager script for in-addr.arpa and ip6.arpa zones.
+Source at https://github.com/MaffC/script-collection/blob/master/rdns-manager
+
+Usage: rdns-manager [options] [IP address[, hostname]]
+Basic usage:
+- Get current rDNS for IP 1.2.3.4:			rdns-manager 1.2.3.4
+- Set rDNS for 1.2.3.4 to example.org:		rdns-manager 1.2.3.4 example.org
+
+Options:
+-h, --help:			This help text.
+-v, --verify-rdns:	Verify the set PTR record resolves once the zone has been synchronised.
+-r, --reset:		Reset [IP address] to the set default rDNS.
+-p, --populate:		Populate the given IPv4 reverse zone with default rDNS records. Does not support IPv6 zones.
+-d, --no-sync:		Do not synchronise the DNS zone after making changes. Use this for making bulk changes.
+-s, --force-sync:	Force-synchronise the DNS zone for [IP address]. Use after making bulk changes.
+-R, --remove-ptr:	Delete the PTR record for [IP address] from its zone.
+
+Configuration:
+--reset-hostname=[default rDNS]:	Use in combination with -r, --reset.
+--dns-server=[IP address]:			Change what DNS server is used for forward and reverse DNS queries.
+"
+	exit;
+}
 sub validate_domain {
-	use Data::Validate::Domain qw(is_domain);
+	require Regexp::Common;
 	my $domain = shift;
-	return 1 if is_domain $domain;
+	return 1 if $domain =~ /^$RE{net}{domain}\.?$/;
 	return 0;
 }
 sub validate_ip {
@@ -62,8 +89,6 @@ sub get_arpa {
 	Net::IP->new($ip)->reverse_ip =~ /^(.*)\.(.{$len}ip6\.arpa)\.$/;
 	return ($1,$2);
 }
-#TODO make these work for DNS roundrobins. I doubt anyone would be stupid enough to have more than one PTR of the same name
-# and i'm not sure if it's even legal, but hey.
 sub does_fqdn_match {
 	my ($fqdn,$ip) = @_;
 	my $r = Net::DNS::Resolver->new(recurse => 1,tcp_timepit => 5,udp_timeout => 5,nameservers => [$def_dns,]);
@@ -71,7 +96,6 @@ sub does_fqdn_match {
 	$p = $r->search($fqdn, 'AAAA') unless is_public_ipv4 $ip;
 	return 0 unless defined $p;
 	my @res = $p->answer;
-	#due to IPv6 shortening, we need to use Net::IP here
 	return 1 unless scalar @res < 1 or Net::IP->new($res[0]->address)->ip ne Net::IP->new($ip)->ip;
 	return 0;
 }
@@ -116,7 +140,7 @@ sub does_record_exist {
 	return 0;
 }
 sub generate_soa_serial {
-	use POSIX qw(strftime);
+	require POSIX qw(strftime);
 	my $cur_serial = shift;
 	my $yyyymmdd = strftime "%Y%m%d", localtime;
 	return $cur_serial+1 if $cur_serial =~ /^$yyyymmdd[0-9]{2}$/;
@@ -191,6 +215,8 @@ sub do_sync {
 GetOptions
 	'reset-hostname=s'	=>	\$def_rdns,
 	'dns-server=s'		=>	\$def_dns,
+	'prefixlen=i'		=>	\$prefixlen,
+	'h|help'			=>	\$help,
 	'v|verify-rdns'		=>	\$verify,
 	'f|force'			=>	\$force,
 	'r|reset'			=>	\$reset,
@@ -199,20 +225,19 @@ GetOptions
 	's|force-sync'		=>	\$fsync,
 	'R|remove-ptr'		=>	\$delptr;
 
+$help and print_help;
 #get IP and domain, validate.
 my $ip = shift or nicedie "No IP given!";
-$prefixlen = $1 if $ip =~ s/\/([0-9]+)//; #split off prefixlen (if given) into variable for later use
+$prefixlen = $1 if $ip =~ s/\/([0-9]+)$//; #split off prefixlen (if given) into variable for later use
 nicedie "Invalid IP address '$ip'!" unless validate_ip $ip;
 my $domain = shift;
 nicedie "Invalid FQDN '$domain'!" if defined $domain and !validate_domain $domain;
 $domain =~ s/([a-zA-Z])$/$1./ if defined $domain; #Append final period if it doesn't exist
 
-#Main program flow
-#Argument intelligence. Omitting this probably won't impact program flow much but it's important that the user know they're stupid.
-nicedie "You seem to have specified both --no-sync and --force-sync. Please make your mind up." if $nosync and $fsync;
-nicedie "You seem to have specified some combination of --reset, --remove-ptr and --force. Please make your mind up." if ($reset and $delptr) or (($reset or $delptr) and $force);
-nicedie "You seem to have specified arguments that don't make sense together. Please make your mind up." if ($newzone and ($delptr or $reset or $force)) or ($verify and !defined $domain) or (defined $domain and ($newzone or $delptr or $reset));
+#Argument validation
+nicedie "Invalid arguments" if ($nosync and $fsync) or ($force and ($reset or $delptr)) or ($reset and $delptr) or (($verify or $force) and !defined $domain) or ($newzone and ($delptr or $reset or $force or defined $domain) or (defined $domain and ($delptr or $reset));
 
+#Main program flow
 #Simple check that the zone exists. This was a for/when statement, but this script needs perl 5.8.8 compat, so for/given and when are out.
 my ($trec,$tz) = get_arpa $ip;
 nicedie "Authoritative zone for IP $ip doesn't exist! Please create zone $tz or ensure you specified the correct subnet mask if this is an IPv6 address!" if does_zone_exist($ip) == -2;

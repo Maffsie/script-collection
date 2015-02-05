@@ -1,12 +1,11 @@
-#!/usr/local/bin/bash
-#wdns - Script to edit specific zones or the master zones conf file
-#Generate random string of characters. This is to ensure we're not directly editing things
 #TODO: Make the creation and management of reverse zones easier.
 #TODO: Make the 'zones' file easier to manage. Automate creation, editing and removal of entries.
 RAND=$(cat /dev/urandom|tr -cd "[:alnum:]"|head -c 8)
 FILETOEDIT=""
-ORIGDIR="/etc/namedb/"
-CHECKBIN="/usr/sbin/named-checkconf"
+ORIGDIR="/usr/local/etc/namedb"
+SUBDIR=""
+NAMEDRC="/usr/local/etc/rc.d/named"
+CHECKBIN="/usr/local/sbin/named-checkconf"
 CHECKRUN="$CHECKBIN /tmp/named.$RAND"
 UPDATE_SOA=0
 USAGE="wdns - Small bash script for maintaining BIND9 configs.
@@ -23,150 +22,128 @@ USAGE="wdns - Small bash script for maintaining BIND9 configs.
 # wnds -rs domain.name   - resign DNSSEC-secured zone"
 if [ "$1" == "" ]; then
 	echo "$USAGE"
-	exit 1
+	return 1
 elif [ "$1" == "named.conf" ]; then
 	#Edit the master config by default
 	echo "No zone specified, editing named.conf."
 	FILETOEDIT="named.conf"
 elif [ "$1" == "-h" ]; then
 	echo "$USAGE"
-	exit 0
+	return 0
 elif [ "$1" == "-d" ]; then
 	if [ "$2" == "" ]; then
 		echo "$USAGE"
-		exit 1
+		return 1
 	fi
 	echo "Deleting zone for $2."
-	if [ ! -f /etc/namedb/master/$2 ]; then
+	if [ ! -f $ORIGDIR/master/$2 ]; then
 		echo "Error: Zonefile for $2 doesn't exist!"
-		exit 1
+		return 1
 	fi
-	rm /etc/namedb/master/$2
+	rm $ORIGDIR/master/$2
 	if [ $? -ne 0 ]; then
-		echo "Error: Failed to delete zonefile /etc/namedb/master/$2."
-		exit 1
+		echo "Error: Failed to delete zonefile $ORIGDIR/master/$2."
+		return 1
 	fi
-	exit 0
+	return 0
 elif [ "$1" == "-l" ]; then
 	echo "The following forward zones exist:"
-	ls -l /etc/namedb/master|egrep -v "\.db$|new.domain|\.last|\.arpa|\.signed$|^total "|awk '{print $9}'|sort
+	ls -l $ORIGDIR/master|egrep -v "\.db$|new.domain|\.last|\.arpa|\.signed|\.jbk|\.jnl|\.signed\.jnl$|^total "|awk '{print $9}'|sort
 	echo
 	echo "The following reverse zones exist:"
-	ls -l /etc/namedb/master/|egrep "\.arpa$"|egrep -v "\.last|\.signed$"|awk '{print $9}'|sort
-	exit 0
+	ls -l $ORIGDIR/master/|egrep "\.arpa$"|egrep -v "\.last|\.signed$"|awk '{print $9}'|sort
+	return 0
 elif [ "$1" == "-n" ]; then
 	if [ "$2" == "" ]; then
 		echo "$USAGE"
-		exit 1
+		return 1
 	fi
 	echo "Creating new zone for $2."
-	if [ -f /etc/namedb/master/$2 ]; then
+	if [ -f $ORIGDIR/master/$2 ]; then
 		echo "Error: Zonefile for $2 already exists. Use -nz to overwrite with new zone!"
-		exit 1
+		return 1
 	fi
 	#TODO: Validate input.
-	cat /etc/namedb/master/new.domain|sed "s/new\.domain/$2/g">/etc/namedb/master/$2
+	cat $ORIGDIR/master/new.domain|sed "s/new\.domain/$2/g">$ORIGDIR/master/$2
 	if [ $? -ne 0 ]; then
-		echo "Error: Failed to copy zone template to /etc/namedb/master/$2"
-		exit 1
+		echo "Error: Failed to copy zone template to $ORIGDIR/master/$2"
+		return 1
 	fi
 	echo "Zone for $2 created. Run the following on all slaves:"
 	#TODO: Add zone to slaves
-	read -p "Hit exit to open it for editing, or Ctrl-C to exit."
+	read -p "Hit return to open it for editing, or Ctrl-C to exit."
 	wdns $2
-	exit 0
+	return 0
 elif [ "$1" == "-nz" ]; then
 	if [ "$2" == "" ]; then
 		echo "$USAGE"
-		exit 1
+		return 1
 	fi
 	echo "Recreating zone for $2."
-	if [ ! -f /etc/namedb/master/$2 ]; then
+	if [ ! -f $ORIGDIR/master/$2 ]; then
 		echo "Error: Zonefile for $2 does not exist. Use -n to create a new zone!"
-		exit 1
+		return 1
 	fi
 	#TODO: Validate input.
-	cat /etc/namedb/master/new.domain|sed "s/new\.domain/$2/g">/etc/namedb/master/$2
+	cat $ORIGDIR/master/new.domain|sed "s/new\.domain/$2/g">$ORIGDIR/master/$2
 	if [ $? -ne 0 ]; then
-		echo "Error: Failed to copy zone template to /etc/namedb/master/$2"
-		exit 1
+		echo "Error: Failed to copy zone template to $ORIGDIR/master/$2"
+		return 1
 	fi
-	read -p "Zone recreated. Hit exit to open it for editing, or Ctrl-C to exit."
+	read -p "Zone recreated. Hit return to open it for editing, or Ctrl-C to exit."
 	wdns $2
-	exit 0
+	return 0
 elif [ "$1" == "-s" ]; then
 	if [ "$2" == "" ]; then
 		echo "$USAGE"
-		exit 1
+		return 1
 	fi
-	if [ ! -f /etc/namedb/master/$2 ]; then
+	if [ ! -f $ORIGDIR/master/$2 ]; then
 		echo "Error: Zonefile for $2 does not exist. Use -n to create a new zone!"
-		exit 1
+		return 1
 	fi
 	ZONE=$2
-	DNSSEC_DIR="/etc/namedb/dnssec"
+	DNSSEC_DIR="$ORIGDIR/keys"
 	DSKEYG_MSG="$(dnssec-keygen -f KSK -a RSASHA256 -b 2048 -K $DNSSEC_DIR -n ZONE $ZONE. 2>&1)"
 	if [ $? -ne 0 ]; then
 		echo "DNSSEC signing key generation failed! Error: $DSKEYG_MSG"
-		exit 1
+		return 1
 	fi
-	mv $DNSSEC_DIR/K$ZONE.+*.key $DNSSEC_DIR/K$ZONE.KSK.key
-	mv $DNSSEC_DIR/K$ZONE.+*.private $DNSSEC_DIR/K$ZONE.KSK.private
 	DSKEYG_MSG="$(dnssec-keygen -a RSASHA256 -b 2048 -K $DNSSEC_DIR -n ZONE $ZONE. 2>&1)"
 	if [ $? -ne 0 ]; then
 		echo "DNSSEC zone signing key generation failed! Error: $DSKEYG_MSG"
-		exit 1
+		return 1
 	fi
-	mv $DNSSEC_DIR/K$ZONE.+*.key $DNSSEC_DIR/K$ZONE.ZSK.key
-	mv $DNSSEC_DIR/K$ZONE.+*.private $DNSSEC_DIR/K$ZONE.ZSK.private
-	echo "The following lines must now be added to the zone file for $ZONE, right after the nameserver records:
-	\$include $DNSSEC_DIR/K$ZONE.KSK.key
-	\$include $DNSSEC_DIR/K$ZONE.ZSK.key
-
-	After this has been done, please remember to edit the zone definition in your bind config to change the zone file to '/etc/namedb/master/$ZONE.signed'" && echo
-	read -p "Press enter to open the zone for editing, or Ctrl-C to exit and add these later."
-	wdns $ZONE
-	exit 0
+	echo "DNSSEC key generation complete. Add the following to the zone configuration in zones.conf:
+key-directory \"$ORIGDIR/keys\";
+auto-dnssec maintain;
+inline-signing yes;" && echo
+	read -p "Press enter to open named.conf.zones for editing, or Ctrl-C to exit and add these later."
+	wdns zones
+	return 0
 elif [ "$1" == "-rs" ]; then
 	if [ "$2" == "" ]; then
 		echo "$USAGE"
-		exit 1
+		return 1
 	fi
-	if [ ! -f /etc/namedb/master/$2 ]; then
+	if [ ! -f $ORIGDIR/master/$2 ]; then
 		echo "Error: Zonefile for $2 does not exist. Use -n to create a new zone!"
-		exit 1
+		return 1
 	fi
 	ZONE=$2
-	DNSSEC_DIR="/etc/namedb/dnssec"
-	if [ ! -f /etc/namedb/master/$ZONE.signed ]; then
+	DNSSEC_DIR="$ORIGDIR/dnssec"
+	if [ ! -f $ORIGDIR/master/$ZONE.signed ]; then
 		echo "Zone $ZONE doesn't appear to be DNSSEC-enabled! Use -s to sign an unsigned zone!"
-		exit 1
+		return 1
 	fi
 	if [ ! -f $DNSSEC_DIR/K$ZONE.KSK.key -o ! -f $DNSSEC_DIR/K$ZONE.ZSK.key ]; then
 		echo "Signing keys for $ZONE don't exist! Use -s to sign an unsigned zone!"
-		exit 1
+		return 1
 	fi
-	#sorry
-	ORIGDIR="/etc/namedb/master/"
-	SOA="$(cat "$ORIGDIR$ZONE"|grep "; Serial"|sed -E 's/;.*//g;s/[[:space:]]*//g')"
-	SOA_VERSION="$(echo $SOA|tail -c2)"
-	SOA_DATE="$(echo $SOA|head -c8)"
-	SOA_NEW_DATE="$(date "+%Y%m%d")"
-	if [[ "$SOA_DATE" == "$SOA_NEW_DATE" ]]; then
-		SOA_VERSION="$(echo "$SOA_VERSION+1"|bc)"
-		if [ "$(echo "$(echo "$SOA_VERSION"|wc -c|tr -cd '[:alnum:]')-1"|bc)" == "1" ]; then
-			SOA_VERSION="0$SOA_VERSION"
-		fi
-	else
-		SOA_VERSION="00"
-		SOA_DATE="$SOA_NEW_DATE"
-	fi
-	cat "$ORIGDIR$ZONE"|sed "s/$SOA/$SOA_DATE$SOA_VERSION/">/tmp/soatmp$ZONE
-	mv /tmp/soatmp$ZONE $ORIGDIR$ZONE
-	DNSSEC_OUT="$(dnssec-signzone -o $ZONE -e +31536000 -d /etc/namedb/dnssec -K /etc/namedb/dnssec -k /etc/namedb/dnssec/K$ZONE.KSK.key /etc/namedb/master/$ZONE /etc/namedb/dnssec/K$ZONE.ZSK.key 2>&1)"
+	DNSSEC_OUT="$(dnssec-signzone -o $ZONE -d $DNSSEC_DIR -K $DNSSEC_DIR -k $DNSSEC_DIR/K$ZONE.KSK.key $ORIGDIR/master/$ZONE $DNSSEC_DIR/K$ZONE.ZSK.key 2>&1)"
 	if [ $? -ne 0 ]; then
 		echo "DNSSEC signing failed! Error: $DNSSEC_OUT"
-		exit 1
+		return 1
 	fi
 	echo "Zone $ZONE resigned."
 	#Reload zones
@@ -174,32 +151,32 @@ elif [ "$1" == "-rs" ]; then
 	/etc/rc.d/named reload
 	if [ $? -ne 0 ]; then
 		echo "Error while reloading named!"
-		exit 1
+		return 1
 	fi
-	exit 0
+	return 0
 else
 	#Check if we want to edit the master zones config
 	if [ "$1" == "zones" ]; then
 		echo "Editing zones.conf."
-		FILETOEDIT="zones.conf"
+		FILETOEDIT="/named.conf.zones"
 	else
 		#Edit a specific zonefile
-		if [ ! -f /etc/namedb/master/$1 ]; then
+		if [ ! -f $ORIGDIR/master/$1 ]; then
 			#Error out if the zone doesn't exist. Zones should be created using the newzone function
 			echo "Zone for $1 doesn't exist!"
-			exit 1
+			return 1
 		fi
 		echo "Editing zonefile for $1."
+		SUBDIR="/master/"
 		FILETOEDIT="$1"
-		ORIGDIR="/etc/namedb/master/"
-		CHECKBIN="/usr/sbin/named-checkzone"
+		CHECKBIN="/usr/local/sbin/named-checkzone"
 		CHECKRUN="$CHECKBIN $1 /tmp/named.$RAND"
 		UPDATE_SOA=1
 	fi
 fi
 if [ $UPDATE_SOA -eq 1 ]; then
 	#Update SOA
-	SOA="$(cat "$ORIGDIR$FILETOEDIT"|grep "; Serial"|sed -E 's/;.*//g;s/[[:space:]]*//g')"
+	SOA="$(cat "$ORIGDIR$SUBDIR$FILETOEDIT"|grep "; Serial"|sed -E 's/;.*//g;s/[[:space:]]*//g')"
 	SOA_VERSION="$(echo $SOA|tail -c2)"
 	SOA_DATE="$(echo $SOA|head -c8)"
 	SOA_NEW_DATE="$(date "+%Y%m%d")"
@@ -212,9 +189,9 @@ if [ $UPDATE_SOA -eq 1 ]; then
 		SOA_VERSION="00"
 		SOA_DATE="$SOA_NEW_DATE"
 	fi
-	cat "$ORIGDIR$FILETOEDIT"|sed "s/$SOA/$SOA_DATE$SOA_VERSION/">/tmp/named.$RAND
+	cat "$ORIGDIR$SUBDIR$FILETOEDIT"|sed "s/$SOA/$SOA_DATE$SOA_VERSION/">/tmp/named.$RAND
 else
-	cp "$ORIGDIR$FILETOEDIT" /tmp/named.$RAND
+	cp "$ORIGDIR$SUBDIR$FILETOEDIT" /tmp/named.$RAND
 fi
 #Generate MD5 sum of the original file
 ORIGHASH=$(md5 -q /tmp/named.$RAND)
@@ -224,7 +201,7 @@ for (( ; ; )); do
 	NEWHASH=$(md5 -q /tmp/named.$RAND)
 	if [ "$ORIGHASH" == "$NEWHASH" ]; then
 		echo "No changes made to $FILETOEDIT."
-		exit 0
+		return 0
 	fi
 	echo -n "Checking $FILETOEDIT for errors... "
 	CHECK_OUT=$($CHECKRUN)
@@ -232,25 +209,17 @@ for (( ; ; )); do
 		#Changes cleared named-checkzone
 		echo "No errors."
 		#Make a backup of the previous known-good zone, just in case
-		cp "$ORIGDIR$FILETOEDIT" "$ORIGDIR$FILETOEDIT.last"
+		cp "$ORIGDIR$SUBDIR$FILETOEDIT" "$ORIGDIR$SUBDIR$FILETOEDIT.last"
 		#Move the new zone in over the old one
-		mv /tmp/named.$RAND "$ORIGDIR$FILETOEDIT"
-		#DNSSEC
-		if [ -f /etc/namedb/dnssec/K$1.KSK.key ]; then
-			echo "Signing zone"
-			DNSSEC_OUT="$(dnssec-signzone -o $1 -e +31536000 -d /etc/namedb/dnssec -K /etc/namedb/dnssec -k /etc/namedb/dnssec/K$1.KSK.key /etc/namedb/master/$1 /etc/namedb/dnssec/K$1.ZSK.key 2>&1)"
-			if [ $? -ne 0 ]; then
-				echo "Failed to sign zone!\n$DNSSEC_OUT"
-			fi
-		fi
+		mv /tmp/named.$RAND "$ORIGDIR$SUBDIR$FILETOEDIT"
 		#Reload zones
 		echo "Reloading named"
-		/etc/rc.d/named reload
+		$NAMEDRC reload
 		if [ $? -eq 0 ]; then
 			break
 		else
 			echo "Error while reloading named!"
-			exit 1
+			return 1
 		fi
 	else
 		#Changes didn't clear named-checkzone

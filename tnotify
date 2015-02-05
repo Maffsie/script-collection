@@ -1,0 +1,115 @@
+#!/usr/bin/env perl
+
+package Net::WHMCS::Integration::OSX;
+
+use strict;
+use warnings;
+
+no warnings qw/experimental/;
+use v5.14;
+use Digest::MD5 qw/md5_hex/;
+use HTTP::Date;
+use JSON::PP;
+use LWP::UserAgent;
+use Maff::Common::OSX qw/nc_notify/;
+use Maff::Common::Time qw/relative_time/;
+
+# Configuration
+our $username = "";
+our $password = "";
+our $apitoken = "";
+$password = md5_hex $password;
+
+my $whmcsinstall = "";
+my $endpoint = "$whmcsinstall/includes/api.php";
+my $maxsubjlen = 32;
+my $knownpath = "$ENV{HOME}/.tnotifyd_known";
+
+my $whmcs;
+
+sub readknown {
+	open my $kn, "<$knownpath";
+	my $json = <$kn>;
+	$json = decode_json $json;
+	close $kn;
+	return $json;
+}
+sub writeknown {
+	open my $kn, ">$knownpath";
+	my $json = JSON::PP->new->encode(@_);
+	print $kn $json;
+	close $kn;
+}
+sub known {
+	my $k = readknown;
+	my ($id,$ts) = @_;
+	return 1 if defined $k->{$id} and $k->{$id} == $ts;
+	$k->{$id}=$ts;
+	writeknown $k;
+	return 0;
+}
+sub fetchWaitingTickets {
+	my %pfields = (
+		"username"	=>		$username,
+		"password"	=>		$password,
+		"accesskey"	=>		$apitoken,
+		"action"	=>		"gettickets",
+		"status"	=>		"Awaiting Reply",
+		#"status"	=>		"All Active Tickets",
+		"limitnum"	=>		50,
+		"responsetype"	=>	"json",
+	);
+	my $lwp = new LWP::UserAgent(timeout => 100);
+	$lwp->agent('perl/whmcs-api');
+	my $response = $lwp->post($endpoint, \%pfields);
+	return $response->decoded_content;
+}
+sub build_single {
+	my $tnum = shift || 0;
+	my $ticket = $whmcs->{tickets}->{ticket}->[$tnum];
+	my ($tid,$tsubj,$ttime,$tstat);
+	$tid = $ticket->{tid}; $ttime = $ticket->{lastreply};
+	$tsubj = $ticket->{subject}; $tstat = $ticket->{status};
+	$tsubj = substr($tsubj,0,$maxsubjlen)."…" if length $tsubj > $maxsubjlen;
+	$ttime =~ s/$/ -0700/; $ttime = str2time $ttime;
+	return if known $tid, $ttime;
+	$ttime = relative_time $ttime;
+	$tstat = "opened" if $tstat eq "Open"; $tstat = "response" if $tstat eq "Customer-Reply";
+	return ("New ticket $tstat","#$tid: $tsubj ($ttime)");
+}
+sub build_many {
+	my ($openc,$replc,$esclc,$othc,$ltnum) = (0,0,0,0,0);
+	for(my $t=0;$t<$whmcs->{numreturned};$t++) {
+		my $ticket = $whmcs->{tickets}->{ticket}->[$t];
+		my $tid = $ticket->{tid};
+		my $ttime = $ticket->{lastreply}; $ttime =~ s/$/ -0700/; $ttime = str2time $ttime;
+		next if known $tid, $ttime;
+		$ltnum=$t;
+		for($ticket->{status}) {
+			$openc++ when /Open/;
+			$replc++ when /Customer-Reply/;
+			$esclc++ when /Escalated/i;
+			default { $othc++ }
+		}
+	}
+	my $tc = ($openc+$replc+$esclc+$othc);
+	return unless $tc;
+	return build_single $ltnum if $tc == 1;
+	my $tstr = "";
+	$openc and $tstr .= "$openc open";
+	$replc and $tstr .= (length $tstr? ', ' : '')."$replc replied to";
+	$esclc and $tstr .= (length $tstr? ', ' : '')."$esclc escalated";
+	$othc and $tstr .= (length $tstr? ', ' : '')."$othc misc.";
+	return ("New tickets waiting",$tstr);
+}
+sub build {
+	$whmcs = fetchWaitingTickets;
+	return ("Error","Failed to parse response from WHMCS: $whmcs") if $whmcs !~ /^{/;
+	$whmcs = decode_json $whmcs;
+	return ("Error","Failed to fetch tickets from WHMCS") if $whmcs->{result} ne "success";
+	return unless $whmcs->{numreturned};
+	return build_single if $whmcs->{numreturned} == 1;
+	return build_many;
+}
+my ($t,$m) = build or exit 0;
+nc_notify $t, $m;
