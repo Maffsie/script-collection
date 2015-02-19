@@ -3,24 +3,25 @@
 use strict;
 
 use vars qw($VERSION %IRSSI);
-$VERSION = '2014112900';
+$VERSION = '2003021201';
 %IRSSI = (
-	authors     => 'Stefan \'tommie\' Tomanek, Maff',
-	contact     => 'stefan@pico.ruhr.de, maff+irssi@maff.scot',
+	authors     => 'Stefan \'tommie\' Tomanek',
+	contact     => 'stefan@pico.ruhr.de',
 	name        => 'QueryResume',
 	description => 'restores the last lines of a query on re-creation',
 	license     => 'GPLv2',
-	modules     => 'Date::Format',
+	modules     => 'Date::Format File::Glob',
 	changed     => $VERSION,
 );  
 
 use Irssi 20020324;
 use Date::Format;
+use File::Glob ':glob';
 
-# Modified to remove unnecessary footer, replace actual "box" with greyed-out text
 sub draw_box ($$$) {
 	my ($title, $text, $colour) = @_;
-	my $box = '%K%U« '.$title.' »%U%n'."\n";
+	my $box = '';
+	$box .= '%K%U« '.$title.' »%U%n'."\n";
 	foreach (split(/\n/, $text)) {
 		$box .= '%K'.$_."%n\n";
 	}
@@ -28,7 +29,6 @@ sub draw_box ($$$) {
 	return $box;
 }
 
-# Heavily modified. Stylistic changes, reordering, added some intelligence so it loads the last non-tiny log if possible
 sub sig_window_item_new ($$) {
 	my ($win, $witem) = @_;
 	return unless (ref $witem && $witem->{type} eq 'QUERY');
@@ -42,6 +42,7 @@ sub sig_window_item_new ($$) {
 	$autolog =~ s/([\]\[])/\\$1/g;
 	$autolog =~ s/\/[\{\}a-zA-Z0-9_\-\.]*$//;
 	my @files = get_sorted_files($autolog);
+	return unless scalar @files;
 	my $filename;
 	foreach(@files) {
 		$filename=$_ and last if -s $_ >= 300;
@@ -60,10 +61,9 @@ sub sig_window_item_new ($$) {
 	$witem->print(draw_box("Last $lines lines from log $filename", $text, 1), MSGLEVEL_CLIENTCRAP & MSGLEVEL_NEVER) if $text;
 }
 
-# Added: sort a list of files in a directory by date.
 sub get_sorted_files ($) {
 	my $path = shift; $path =~ s/~/$ENV{HOME}/;
-	opendir my($dirh), $path or die "can't opendir $path: $!";
+	opendir my($dirh), $path or return;
 	my @flist = sort { -M $a <=> -M $b }
 				map  { "$path/$_" }
 				grep { !/^\.{1,2}$/ }
@@ -74,3 +74,4 @@ sub get_sorted_files ($) {
 
 Irssi::settings_add_int($IRSSI{name}, 'queryresume_lines', 10);
 Irssi::signal_add('window item new', 'sig_window_item_new');
+
