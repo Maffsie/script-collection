@@ -1,6 +1,6 @@
 #TODO: Make the creation and management of reverse zones easier.
 #TODO: Make the 'zones' file easier to manage. Automate creation, editing and removal of entries.
-RAND=$(cat /dev/urandom|tr -cd "[:alnum:]"|head -c 8)
+RAND=$(LC_CTYPE=C;cat /dev/urandom|tr -cd "[:alnum:]"|head -c 8)
 FILETOEDIT=""
 ORIGDIR="/usr/local/etc/namedb"
 SUBDIR=""
