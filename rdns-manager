@@ -50,8 +50,8 @@ sub nicedie {
 	exit 1;
 }
 sub print_help {
-	print
-"rdns-manager v$VERSION by Matthew Connelly, 2014-15
+	print <<"ENDHELP"
+rdns-manager v$VERSION by Matthew Connelly, 2014-15
 Manager script for in-addr.arpa and ip6.arpa zones.
 Source at https://github.com/MaffC/script-collection/blob/master/rdns-manager
 
@@ -72,7 +72,7 @@ Options:
 Configuration:
 --reset-hostname=[default rDNS]:	Use in combination with -r, --reset.
 --dns-server=[IP address]:			Change what DNS server is used for forward and reverse DNS queries.
-"
+ENDHELP
 	exit;
 }
 sub validate_domain {
@@ -237,7 +237,7 @@ nicedie "Invalid FQDN '$domain'!" if defined $domain and !validate_domain $domai
 $domain =~ s/([a-zA-Z])$/$1./ if defined $domain; #Append final period if it doesn't exist
 
 #Argument validation
-nicedie "Invalid arguments" if ($nosync and $fsync) or ($force and ($reset or $delptr)) or ($reset and $delptr) or (($verify or $force) and !defined $domain) or ($newzone and ($delptr or $reset or $force or defined $domain) or (defined $domain and ($delptr or $reset));
+nicedie "Invalid arguments" if ($nosync and $fsync) or ($force and ($reset or $delptr)) or ($reset and $delptr) or (($verify or $force) and !defined $domain) or ($newzone and (($delptr or $reset or $force or defined $domain) or (defined $domain and ($delptr or $reset))));
 
 #Main program flow
 #Simple check that the zone exists. This was a for/when statement, but this script needs perl 5.8.8 compat, so for/given and when are out.
