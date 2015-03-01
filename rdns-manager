@@ -1,13 +1,14 @@
 #!/usr/bin/env perl
 # License: 3-Clause BSD. Author: Matthew Connelly.
 # This is a (formerly Bash, now Perl) script for managing in-addr.arpa and ip6.arpa zones.
-# If you have any questions or issues, open an issue at https://bitbucket.org/MaffC/script-collection/issues
 
 use strict;
 use warnings;
 
 package DNS::Reverse::Manager;
 use vars '$VERSION'; $VERSION = '1.1.0';                             #Version number
+
+use 5.008_008;
 
 use Data::Validate::IP qw(is_public_ipv4 is_public_ipv6);            #for validating v4/v6 addresses
 use Getopt::Long qw(:config posix_default bundling pass_through);    #for intelligently handling cli arguments
@@ -240,9 +241,10 @@ nicedie "Invalid arguments" if ($nosync and $fsync) or ($force and ($reset or $d
 #Main program flow
 #Simple check that the zone exists. This was a for/when statement, but this script needs perl 5.8.8 compat, so for/given and when are out.
 my ($trec,$tz) = get_arpa $ip;
-nicedie "Authoritative zone for IP $ip doesn't exist! Please create zone $tz or ensure you specified the correct subnet mask if this is an IPv6 address!" if does_zone_exist($ip) == -2;
-nicedie "Zonefile $tz (supposedly authoritative for $ip) doesn't appear to be a valid BIND zone. Please check the zonefile and try again." if does_zone_exist($ip) == -1;
-nicedie "Authoritative zone for IP $ip exists but we can't write to it. Please check the permissions on the zonefile for $tz." if !does_zone_exist($ip);
+my $zone_exists = does_zone_exist $ip;
+nicedie "Authoritative zone for IP $ip doesn't exist! Please create zone $tz or ensure you specified the correct subnet mask if this is an IPv6 address!" if $zone_exists == -2;
+nicedie "Zonefile $tz (supposedly authoritative for $ip) doesn't appear to be a valid BIND zone. Please check the zonefile and try again." if $zone_exists == -1;
+nicedie "Authoritative zone for IP $ip exists but we can't write to it. Please check the permissions on the zonefile for $tz." if !$zone_exists;
 
 if(!defined $domain and $reset) {
 	set_ptr $ip,$def_rdns or nicedie "Failed to set rDNS for $ip to '$def_rdns'!";
@@ -254,7 +256,7 @@ if(!defined $domain and $reset) {
 	nicedie "Sorry, but the zone population functionality isn't yet written.";
 } elsif(!defined $domain) {
 	print "No rDNS record for IP $ip exists.\n" and exit unless does_record_exist $ip;
-	print "rDNS for IP $ip: ".get_ptr $ip;print "\n";exit;
+	print "rDNS for IP $ip: ".get_ptr($ip)."\n";exit;
 }
 if(defined $domain) {
 	nicedie "Forward DNS for $domain doesn't match $ip!" unless $force or does_fqdn_match $domain, $ip;
