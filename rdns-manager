@@ -50,7 +50,7 @@ sub nicedie {
 	exit 1;
 }
 sub print_help {
-	print <<"ENDHELP"
+	print qq{
 rdns-manager v$VERSION by Matthew Connelly, 2014-15
 Manager script for in-addr.arpa and ip6.arpa zones.
 Source at https://github.com/MaffC/script-collection/blob/master/rdns-manager
@@ -71,8 +71,7 @@ Options:
 
 Configuration:
 --reset-hostname=[default rDNS]:	Use in combination with -r, --reset.
---dns-server=[IP address]:			Change what DNS server is used for forward and reverse DNS queries.
-ENDHELP
+--dns-server=[IP address]:			Change what DNS server is used for forward and reverse DNS queries.};
 	exit;
 }
 sub validate_domain {
